@@ -12,7 +12,7 @@ import random
 from pathlib import Path
 from typing import Dict, Optional, Sequence
 
-from . import audio, detection, naming
+from . import audio, detection, metadata, naming
 from .models import TaggingConfig, TagResult
 from .placement import compute_placements
 
@@ -100,7 +100,10 @@ def process_file(
     # --- name + export ---
     out_stem = naming.build_output_stem(src.stem, bpm, key, config.suffix)
     out_path = Path(output_dir) / f"{out_stem}.mp3"
-    audio.export_mp3(mixed, str(out_path), config.bitrate)
+    tags = metadata.build_id3_tags(
+        config.producer, title=src.stem, bpm=bpm, key=key
+    )
+    audio.export_mp3(mixed, str(out_path), config.bitrate, tags=tags)
 
     result.output_name = out_path.name
     return result
@@ -112,12 +115,20 @@ def export_with_placements(
     out_path: str,
     config: TaggingConfig,
     tag_cache: Optional[Dict[str, object]] = None,
+    crop: Optional[tuple] = None,
+    tags: Optional[Dict[str, str]] = None,
 ) -> str:
     """Mix an explicit list of placements onto a beat and export it.
 
     This is the GUI's export path: the user has placed tags by hand on the
     waveform, so we skip auto-placement/detection and just duck+overlay+normalize
     the given :class:`~core.models.Placement` list, then write ``out_path``.
+
+    Args:
+        crop: Optional ``(start_sec, end_sec)``. When given, tags are applied to
+            the full beat first, then the segment is cropped — so any tag inside
+            the window is baked into the preview.
+        tags: Optional ID3 metadata dict (see ``core.metadata.build_id3_tags``).
 
     Returns the path written.
     """
@@ -129,6 +140,13 @@ def export_with_placements(
             tag_cache[p.tag_path] = audio.load_audio(p.tag_path)
 
     mixed = audio.apply_placements(beat, placements, tag_cache, config.duck_db)
+
+    if crop is not None:
+        start_ms = max(0, int(crop[0] * 1000))
+        end_ms = min(len(mixed), int(crop[1] * 1000))
+        if end_ms > start_ms:
+            mixed = mixed[start_ms:end_ms]
+
     mixed = audio.normalize_safe(mixed, config.headroom_db)
-    audio.export_mp3(mixed, out_path, config.bitrate)
+    audio.export_mp3(mixed, out_path, config.bitrate, tags=tags)
     return out_path

@@ -63,6 +63,7 @@ class TaggingConfig:
 
     # Export
     bitrate: str = "320k"
+    producer: str = "paperhand"   # ID3 artist on exported MP3s
 
     # Reproducibility (seeded RNG for tag rotation + jitter); None = random
     seed: Optional[int] = None

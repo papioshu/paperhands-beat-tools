@@ -84,9 +84,9 @@ def normalize_safe(seg, headroom_db: float = 1.0):
     return seg.apply_gain(change)
 
 
-def export_mp3(seg, path: str, bitrate: str = "320k") -> None:
-    """Export an AudioSegment to MP3 at the given (constant) bitrate."""
-    seg.export(path, format="mp3", bitrate=bitrate)
+def export_mp3(seg, path: str, bitrate: str = "320k", tags: dict = None) -> None:
+    """Export an AudioSegment to MP3 at the given bitrate, with optional ID3 tags."""
+    seg.export(path, format="mp3", bitrate=bitrate, tags=tags or None)
 
 
 def to_mono_float(seg):

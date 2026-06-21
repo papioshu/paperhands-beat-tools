@@ -12,6 +12,7 @@ from PySide6.QtWidgets import (
     QFileDialog,
     QHBoxLayout,
     QLabel,
+    QLineEdit,
     QListWidget,
     QMessageBox,
     QPushButton,
@@ -30,6 +31,21 @@ class SettingsDialog(QDialog):
         self.resize(560, 360)
 
         layout = QVBoxLayout(self)
+
+        # Producer name (embedded as the ID3 artist on exports)
+        prod_heading = QLabel("Producer name")
+        prod_heading.setObjectName("Heading")
+        layout.addWidget(prod_heading)
+        prod_hint = QLabel("Embedded as the artist tag on every exported MP3.")
+        prod_hint.setObjectName("SubHeading")
+        layout.addWidget(prod_hint)
+        self.producer_edit = QLineEdit(config.producer())
+        self.producer_edit.setPlaceholderText("paperhand")
+        layout.addWidget(self.producer_edit)
+        self.producer_edit.editingFinished.connect(
+            lambda: config.set_producer(self.producer_edit.text())
+        )
+
         heading = QLabel("Watched folders")
         heading.setObjectName("Heading")
         layout.addWidget(heading)

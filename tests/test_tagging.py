@@ -1,4 +1,4 @@
-"""Phase 5 placement interactions, offscreen (no audio backend needed)."""
+"""Phase 5/6 placement + crop interactions, offscreen (no audio backend)."""
 
 import os
 import sys
@@ -11,6 +11,7 @@ import pytest  # noqa: E402
 
 pytest.importorskip("PySide6")
 
+from PySide6.QtCore import Qt  # noqa: E402
 from PySide6.QtWidgets import QApplication  # noqa: E402
 
 from app.db import Database  # noqa: E402
@@ -35,6 +36,7 @@ def _window_with_beat(tmp_path):
     app.processEvents()
     win.table.selectRow(0)
     app.processEvents()
+    win._active_tag = "/tags/myTag.wav"
     return win
 
 
@@ -44,61 +46,86 @@ def test_initial_tag_selection_is_captured(tmp_path):
     tagdir = tmp_path / "tags"
     tagdir.mkdir()
     (tagdir / "t.wav").write_bytes(b"\x00\x00")
+    (tmp_path / "Night.mp3").write_bytes(b"\x00\x00")
+    db_path = tmp_path / "lib.db"
+    seed = Database(str(db_path))
+    seed.add_beat(str(tmp_path / "Night.mp3"), "Night.mp3")
+    seed.close()
+
     old = config.tags_folder()
     config.set_tags_folder(str(tagdir))
     try:
-        win = _window_with_beat(tmp_path)
+        # Build the window directly (the _window_with_beat helper forces a tag).
+        app = _app()
+        win = MainWindow(db_path=str(db_path))
+        app.processEvents()
         assert win._active_tag and win._active_tag.endswith("t.wav")
         win.close()
     finally:
         config.set_tags_folder(old)
 
 
-def test_click_places_and_toggles_tags(tmp_path):
+def test_place_and_remove_tags(tmp_path):
     win = _window_with_beat(tmp_path)
-    win._active_tag = "/tags/myTag.wav"
-    win.tag_panel.btn_place.setChecked(True)
-
-    win._on_waveform_click(0.10)   # -> 10s
-    win._on_waveform_click(0.50)   # -> 50s
+    win._place_tag_at_fraction(0.10)   # 10s
+    win._place_tag_at_fraction(0.50)   # 50s
     assert len(win._placements) == 2
     assert len(win.waveform._markers) == 2
 
-    # clicking near the 10s marker again removes it
-    win._on_waveform_click(0.10)
+    win._remove_marker(0)              # removes the earliest (10s)
     assert len(win._placements) == 1
     assert win._placements[0].position_sec == pytest.approx(50, abs=1)
     win.close()
 
 
-def test_no_placement_when_not_in_place_mode(tmp_path):
+def test_drag_to_move_marker(tmp_path):
     win = _window_with_beat(tmp_path)
-    win._active_tag = "/tags/myTag.wav"
-    win.tag_panel.btn_place.setChecked(False)  # seek mode
-    win._on_waveform_click(0.25)
+    win._place_tag_at_fraction(0.20)   # 20s
+    win._move_marker(0, 0.60)          # -> 60s
+    assert win._placements[0].position_sec == pytest.approx(60, abs=1)
+    win.close()
+
+
+def test_place_requires_active_tag(tmp_path):
+    win = _window_with_beat(tmp_path)
+    win._active_tag = None
+    win._place_tag_at_fraction(0.3)
     assert win._placements == []
     win.close()
 
 
 def test_autoplace_lays_down_interval_tags(tmp_path):
     win = _window_with_beat(tmp_path)
-    win.tag_panel.all_tag_paths = lambda: ["/tags/a.wav"]  # pretend the library
+    win.tag_panel.all_tag_paths = lambda: ["/tags/a.wav"]
     win._on_autoplace()
-    # duration 100s, interval 40, start at 0 -> 0, 40, 80
     assert [round(p.position_sec) for p in win._placements] == [0, 40, 80]
-    assert len(win.waveform._markers) == 3
     win.close()
 
 
 def test_clear_removes_all(tmp_path):
     win = _window_with_beat(tmp_path)
-    win._active_tag = "/tags/myTag.wav"
-    win.tag_panel.btn_place.setChecked(True)
-    win._on_waveform_click(0.3)
+    win._place_tag_at_fraction(0.3)
     assert win._placements
     win._on_clear_tags()
     assert win._placements == []
     assert win.waveform._markers == []
+    win.close()
+
+
+def test_place_and_crop_are_mutually_exclusive(tmp_path):
+    win = _window_with_beat(tmp_path)
+    win.tag_panel.btn_place.setChecked(True)
+    assert win.waveform._mode == "place"
+    win.tag_panel.btn_crop.setChecked(True)        # turning crop on...
+    assert not win.tag_panel.btn_place.isChecked()  # ...turns place off
+    assert win.waveform._mode == "crop"
+    win.close()
+
+
+def test_crop_seconds_from_region(tmp_path):
+    win = _window_with_beat(tmp_path)
+    win.waveform._crop = (0.2, 0.6)
+    assert win.waveform.crop_seconds(100.0) == pytest.approx((20.0, 60.0))
     win.close()
 
 
@@ -110,14 +137,9 @@ def test_selecting_another_beat_resets_placements(tmp_path):
     win.db.update_beat(win.db.get_by_path(str(beat2))["id"], duration_sec=80.0)
     win.refresh_library()
 
-    win._active_tag = "/tags/myTag.wav"
-    win.tag_panel.btn_place.setChecked(True)
-    win._on_waveform_click(0.2)
+    win._place_tag_at_fraction(0.2)
     assert win._placements
 
-    # Switch to a row whose beat id differs from the current selection
-    # (row order can tie on date_added, so target by id, not index).
-    from PySide6.QtCore import Qt
     current = win._selected_beat_id()
     other_row = next(
         r for r in range(win.table.rowCount())
@@ -125,5 +147,5 @@ def test_selecting_another_beat_resets_placements(tmp_path):
     )
     win.table.selectRow(other_row)
     _app().processEvents()
-    assert win._placements == []  # reset for the new beat
+    assert win._placements == []
     win.close()

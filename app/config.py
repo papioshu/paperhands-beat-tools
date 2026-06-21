@@ -8,6 +8,7 @@ ORG = "PaperhandBeatTools"
 APP = "BeatTools"
 _KEY = "watched_folders"
 _TAGS_KEY = "tags_folder"
+_PRODUCER_KEY = "producer"
 
 
 def _settings():
@@ -48,3 +49,12 @@ def tags_folder(default: str = "tags") -> str:
 
 def set_tags_folder(folder: str) -> None:
     _settings().setValue(_TAGS_KEY, folder)
+
+
+def producer(default: str = "paperhand") -> str:
+    """Producer name embedded as the ID3 artist on exports."""
+    return str(_settings().value(_PRODUCER_KEY, default) or default)
+
+
+def set_producer(name: str) -> None:
+    _settings().setValue(_PRODUCER_KEY, name.strip() or "paperhand")

@@ -43,7 +43,9 @@ from app.ui.player import AudioPlayer
 from app.ui.settings_dialog import SettingsDialog
 from app.ui.tag_panel import TagLibraryPanel
 from app.ui.widgets import WaveformWidget
-from app.workers import AnalysisRunnable, WorkerSignals
+from app.workers import AnalysisRunnable, ExportRunnable, ExportSignals, WorkerSignals
+from app import config
+from core import metadata as core_metadata
 from core import pipeline
 from core import placement as core_placement
 from core import waveform as wf
@@ -67,6 +69,12 @@ class MainWindow(QMainWindow):
         self.signals.progress.connect(self._on_progress)
         self._analysis_total = 0
         self._analysis_done = 0
+
+        # Export worker
+        self.export_signals = ExportSignals()
+        self.export_signals.done.connect(self._on_export_done)
+        self.export_signals.error.connect(self._on_export_error)
+        self._exporting = False
 
         # Tag placement state (Phase 5)
         self._active_tag = None
@@ -144,9 +152,12 @@ class MainWindow(QMainWindow):
         self.tag_panel = TagLibraryPanel()
         self.tag_panel.active_tag_changed.connect(self._on_active_tag)
         self.tag_panel.place_mode_changed.connect(self._on_place_mode)
+        self.tag_panel.crop_mode_changed.connect(self._on_crop_mode)
         self.tag_panel.autoplace_requested.connect(self._on_autoplace)
         self.tag_panel.clear_requested.connect(self._on_clear_tags)
         self.tag_panel.export_requested.connect(self._on_export)
+        self.tag_panel.export_preview_requested.connect(
+            lambda: self._run_export(preview=True))
         # The panel selects its first tag during construction (before we were
         # connected), so capture that initial selection now.
         self._active_tag = self.tag_panel.active_tag()
@@ -209,7 +220,11 @@ class MainWindow(QMainWindow):
             lambda playing: self.btn_play.setText("Pause" if playing else "Play")
         )
         self.seek.sliderMoved.connect(self.player.set_position)
-        self.waveform.seek_requested.connect(self._on_waveform_click)
+        self.waveform.seek_requested.connect(self._seek_fraction)
+        self.waveform.tag_placed.connect(self._place_tag_at_fraction)
+        self.waveform.marker_removed.connect(self._remove_marker)
+        self.waveform.marker_moved.connect(self._move_marker)
+        self.waveform.crop_changed.connect(self._on_crop_changed)
 
     # -- data --------------------------------------------------------------
 
@@ -384,27 +399,46 @@ class MainWindow(QMainWindow):
         self._active_tag = path or None
 
     def _on_place_mode(self, on: bool) -> None:
-        hint = ("Click the waveform to place the selected tag (click a marker to "
-                "remove it)." if on else "Ready")
+        self.waveform.set_mode("place" if on else "seek")
+        hint = ("Click the waveform to place the tag · drag a marker to move it · "
+                "click a marker to remove it." if on else "Ready")
         self.statusBar().showMessage(hint)
 
-    def _on_waveform_click(self, fraction: float) -> None:
-        """In place-mode, drop/remove a tag; otherwise seek."""
-        if not (self.tag_panel.place_mode() and self._active_tag
-                and self._beat_duration_sec > 0):
-            self._seek_fraction(fraction)
-            return
+    def _on_crop_mode(self, on: bool) -> None:
+        if on:
+            self.waveform.set_mode("crop")
+            self.statusBar().showMessage(
+                "Drag across the waveform to select the preview region.")
+        else:
+            self.waveform.clear_crop()
+            self.waveform.set_mode("place" if self.tag_panel.place_mode() else "seek")
+            self.statusBar().showMessage("Ready")
 
-        pos = fraction * self._beat_duration_sec
-        threshold = max(0.5, 0.01 * self._beat_duration_sec)  # seconds
-        for pl in list(self._placements):
-            if pl.tag_path == self._active_tag and abs(pl.position_sec - pos) <= threshold:
-                self._placements.remove(pl)  # toggle off
-                self._refresh_markers()
-                return
-        self._placements.append(Placement(round(pos, 3), self._active_tag))
+    def _place_tag_at_fraction(self, fraction: float) -> None:
+        if not (self._active_tag and self._beat_duration_sec > 0):
+            self.statusBar().showMessage("Select a tag in the tag library first.", 3000)
+            return
+        pos = round(fraction * self._beat_duration_sec, 3)
+        self._placements.append(Placement(pos, self._active_tag))
         self._placements.sort(key=lambda p: p.position_sec)
         self._refresh_markers()
+
+    def _remove_marker(self, index: int) -> None:
+        if 0 <= index < len(self._placements):
+            del self._placements[index]
+            self._refresh_markers()
+
+    def _move_marker(self, index: int, fraction: float) -> None:
+        if 0 <= index < len(self._placements) and self._beat_duration_sec > 0:
+            pos = round(fraction * self._beat_duration_sec, 3)
+            self._placements[index] = Placement(pos, self._placements[index].tag_path)
+            self._placements.sort(key=lambda p: p.position_sec)
+            self._refresh_markers()
+
+    def _on_crop_changed(self, start: float, end: float) -> None:
+        if self._beat_duration_sec > 0:
+            length = (end - start) * self._beat_duration_sec
+            self.statusBar().showMessage(f"Preview region: {self._fmt(int(length*1000))}")
 
     def _refresh_markers(self) -> None:
         dur = self._beat_duration_sec or 0.0
@@ -430,6 +464,17 @@ class MainWindow(QMainWindow):
         self._refresh_markers()
 
     def _on_export(self) -> None:
+        self._run_export(preview=False)
+
+    def _output_dir(self) -> Path:
+        base = Path(self.db.path).resolve().parent if self.db.path != ":memory:" else Path.cwd()
+        d = base / "output"
+        d.mkdir(parents=True, exist_ok=True)
+        return d
+
+    def _run_export(self, preview: bool) -> None:
+        if self._exporting:
+            return
         if not self._current_path or not self._placements:
             self.statusBar().showMessage("Place at least one tag before exporting.", 3000)
             return
@@ -438,23 +483,50 @@ class MainWindow(QMainWindow):
         if row is None:
             return
 
-        out_dir = Path(self.db.path).resolve().parent / "output" \
-            if self.db.path != ":memory:" else Path.cwd() / "output"
-        out_dir.mkdir(parents=True, exist_ok=True)
-        from core.naming import build_output_stem
-        out_stem = build_output_stem(Path(row["filename"]).stem, row["bpm"], row["key"])
-        out_path = out_dir / f"{out_stem}.mp3"
+        crop = None
+        suffix = "_tagged"
+        if preview:
+            crop = self.waveform.crop_seconds(self._beat_duration_sec)
+            if crop is None:
+                self.statusBar().showMessage(
+                    "Drag a region on the waveform first (crop mode).", 3000)
+                return
+            suffix = "_preview"
 
-        self.statusBar().showMessage("Exporting…")
-        try:
-            pipeline.export_with_placements(
-                self._current_path, self._placements, str(out_path), TaggingConfig()
-            )
-        except Exception as exc:  # noqa: BLE001
-            QMessageBox.warning(self, "Export failed", str(exc))
-            self.statusBar().showMessage("Export failed", 3000)
-            return
-        self.statusBar().showMessage(f"Exported → {out_path.name}", 5000)
+        from core.naming import build_output_stem
+        out_stem = build_output_stem(
+            Path(row["filename"]).stem, row["bpm"], row["key"], suffix=suffix)
+        out_path = self._output_dir() / f"{out_stem}.mp3"
+
+        tags = core_metadata.build_id3_tags(
+            config.producer(),
+            title=row["title"] or Path(row["filename"]).stem,
+            genre=row["genre"], bpm=row["bpm"], key=row["key"], mood=row["mood"],
+            tags=self.db.get_tags(bid),
+        )
+        cfg = TaggingConfig(producer=config.producer())
+
+        self._set_exporting(True)
+        kind = "preview" if preview else "tagged beat"
+        self.statusBar().showMessage(f"Exporting {kind}…")
+        task = ExportRunnable(
+            self._current_path, self._placements, str(out_path), cfg,
+            self.export_signals, crop=crop, tags=tags,
+        )
+        self.pool.start(task)
+
+    def _set_exporting(self, on: bool) -> None:
+        self._exporting = on
+        self.tag_panel.set_export_enabled(not on)
+
+    def _on_export_done(self, out_path: str) -> None:
+        self._set_exporting(False)
+        self.statusBar().showMessage(f"Exported → {Path(out_path).name}", 5000)
+
+    def _on_export_error(self, message: str) -> None:
+        self._set_exporting(False)
+        QMessageBox.warning(self, "Export failed", message)
+        self.statusBar().showMessage("Export failed", 3000)
 
     def _on_save(self, beat_id: int, fields: dict, tag_names: list) -> None:
         self.db.update_beat(beat_id, **fields)

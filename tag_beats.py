@@ -76,6 +76,8 @@ def parse_args(argv=None) -> argparse.Namespace:
 
     # Export / reproducibility
     p.add_argument("--bitrate", default="320k", help="Output MP3 bitrate.")
+    p.add_argument("--producer", default="paperhand",
+                   help="Producer name embedded as the ID3 artist.")
     p.add_argument("--seed", type=int, default=None,
                    help="Seed RNG for reproducible tag rotation / jitter.")
 
@@ -95,6 +97,7 @@ def config_from_args(args: argparse.Namespace) -> TaggingConfig:
         detect=args.detect,
         suffix=args.suffix,
         bitrate=args.bitrate,
+        producer=args.producer,
         seed=args.seed,
     )
 

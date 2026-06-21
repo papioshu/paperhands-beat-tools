@@ -99,3 +99,37 @@ def test_export_with_placements_real_audio(tmp_path):
         check=True, capture_output=True, text=True,
     )
     assert float(probe.stdout.strip()) == pytest.approx(8.0, abs=0.3)
+
+
+def test_export_preview_crop_and_metadata(tmp_path):
+    import subprocess
+
+    from core.models import Placement, TaggingConfig
+    from core import metadata, pipeline
+
+    beat = tmp_path / "beat.mp3"
+    tag = tmp_path / "tag.wav"
+    _make_beat(beat, seconds=12)
+    subprocess.run(
+        ["ffmpeg", "-y", "-f", "lavfi", "-i", "sine=frequency=880:duration=1",
+         "-ac", "2", "-ar", "44100", str(tag)],
+        check=True, capture_output=True,
+    )
+
+    out = tmp_path / "beat_preview.mp3"
+    tags = metadata.build_id3_tags("paperhand", title="Beat", bpm=140, key="F#min")
+    pipeline.export_with_placements(
+        str(beat), [Placement(2.0, str(tag))], str(out), TaggingConfig(),
+        crop=(2.0, 10.0), tags=tags,   # 8-second preview window
+    )
+    assert out.exists()
+
+    # Cropped duration ~8s, and the producer landed in the artist tag.
+    probe = subprocess.run(
+        ["ffprobe", "-v", "error", "-show_entries",
+         "format=duration:format_tags=artist", "-of", "default=nw=1:nk=1", str(out)],
+        check=True, capture_output=True, text=True,
+    )
+    lines = [ln for ln in probe.stdout.splitlines() if ln.strip()]
+    assert float(lines[0]) == pytest.approx(8.0, abs=0.3)
+    assert "paperhand" in probe.stdout

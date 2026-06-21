@@ -30,9 +30,11 @@ from app.services.importer import AUDIO_EXTS
 class TagLibraryPanel(QFrame):
     active_tag_changed = Signal(str)     # path ("" if none)
     place_mode_changed = Signal(bool)
+    crop_mode_changed = Signal(bool)
     autoplace_requested = Signal()
     clear_requested = Signal()
     export_requested = Signal()
+    export_preview_requested = Signal()
 
     def __init__(self):
         super().__init__()
@@ -57,10 +59,15 @@ class TagLibraryPanel(QFrame):
         self.list.setMaximumHeight(140)
         layout.addWidget(self.list)
 
+        mode_row = QHBoxLayout()
         self.btn_place = QPushButton("Place on click")
         self.btn_place.setObjectName("Accent")
         self.btn_place.setCheckable(True)
-        layout.addWidget(self.btn_place)
+        self.btn_crop = QPushButton("Crop preview")
+        self.btn_crop.setCheckable(True)
+        mode_row.addWidget(self.btn_place)
+        mode_row.addWidget(self.btn_crop)
+        layout.addLayout(mode_row)
 
         action_row = QHBoxLayout()
         self.btn_auto = QPushButton("Auto-place")
@@ -76,15 +83,19 @@ class TagLibraryPanel(QFrame):
         self.btn_export = QPushButton("Export Tagged ▸")
         self.btn_export.setObjectName("Primary")
         layout.addWidget(self.btn_export)
+        self.btn_export_preview = QPushButton("Export Preview ▸")
+        layout.addWidget(self.btn_export_preview)
         layout.addStretch(1)
 
         # wiring
         self.btn_folder.clicked.connect(self._choose_folder)
         self.list.currentItemChanged.connect(self._on_tag_changed)
-        self.btn_place.toggled.connect(self.place_mode_changed)
+        self.btn_place.toggled.connect(self._on_place_toggled)
+        self.btn_crop.toggled.connect(self._on_crop_toggled)
         self.btn_auto.clicked.connect(self.autoplace_requested)
         self.btn_clear.clicked.connect(self.clear_requested)
         self.btn_export.clicked.connect(self.export_requested)
+        self.btn_export_preview.clicked.connect(self.export_preview_requested)
 
         self.refresh_tags()
 
@@ -119,7 +130,24 @@ class TagLibraryPanel(QFrame):
     def place_mode(self) -> bool:
         return self.btn_place.isChecked()
 
+    def crop_mode(self) -> bool:
+        return self.btn_crop.isChecked()
+
+    def set_export_enabled(self, on: bool) -> None:
+        self.btn_export.setEnabled(on)
+        self.btn_export_preview.setEnabled(on)
+
     # -- internals ---------------------------------------------------------
+
+    def _on_place_toggled(self, on: bool) -> None:
+        if on and self.btn_crop.isChecked():
+            self.btn_crop.setChecked(False)  # mutually exclusive
+        self.place_mode_changed.emit(on)
+
+    def _on_crop_toggled(self, on: bool) -> None:
+        if on and self.btn_place.isChecked():
+            self.btn_place.setChecked(False)
+        self.crop_mode_changed.emit(on)
 
     def _choose_folder(self) -> None:
         folder = QFileDialog.getExistingDirectory(self, "Choose tags folder")
