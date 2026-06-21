@@ -33,8 +33,10 @@ class TagLibraryPanel(QFrame):
     crop_mode_changed = Signal(bool)
     autoplace_requested = Signal()
     clear_requested = Signal()
-    export_requested = Signal()
-    export_preview_requested = Signal()
+    export_tagged_preview_requested = Signal()
+    export_clean_master_requested = Signal()
+    export_tag_stem_requested = Signal()
+    export_buyer_package_requested = Signal()
 
     def __init__(self):
         super().__init__()
@@ -80,12 +82,22 @@ class TagLibraryPanel(QFrame):
         self.count_label.setObjectName("AccentLime")
         layout.addWidget(self.count_label)
 
-        self.btn_export = QPushButton("Export Tagged ▸")
-        self.btn_export.setObjectName("Primary")
-        layout.addWidget(self.btn_export)
-        self.btn_export_preview = QPushButton("Export Preview ▸")
+        self.btn_export_preview = QPushButton("Export Tagged Preview")
+        self.btn_export_preview.setObjectName("Primary")
         layout.addWidget(self.btn_export_preview)
+        self.btn_export_master = QPushButton("Export Clean Master")
+        layout.addWidget(self.btn_export_master)
+        self.btn_export_stem = QPushButton("Export Tag Stem")
+        layout.addWidget(self.btn_export_stem)
+        self.btn_export_package = QPushButton("Export Buyer Package")
+        self.btn_export_package.setObjectName("Accent")
+        layout.addWidget(self.btn_export_package)
         layout.addStretch(1)
+
+        self._export_buttons = [
+            self.btn_export_preview, self.btn_export_master,
+            self.btn_export_stem, self.btn_export_package,
+        ]
 
         # wiring
         self.btn_folder.clicked.connect(self._choose_folder)
@@ -94,8 +106,10 @@ class TagLibraryPanel(QFrame):
         self.btn_crop.toggled.connect(self._on_crop_toggled)
         self.btn_auto.clicked.connect(self.autoplace_requested)
         self.btn_clear.clicked.connect(self.clear_requested)
-        self.btn_export.clicked.connect(self.export_requested)
-        self.btn_export_preview.clicked.connect(self.export_preview_requested)
+        self.btn_export_preview.clicked.connect(self.export_tagged_preview_requested)
+        self.btn_export_master.clicked.connect(self.export_clean_master_requested)
+        self.btn_export_stem.clicked.connect(self.export_tag_stem_requested)
+        self.btn_export_package.clicked.connect(self.export_buyer_package_requested)
 
         self.refresh_tags()
 
@@ -134,8 +148,8 @@ class TagLibraryPanel(QFrame):
         return self.btn_crop.isChecked()
 
     def set_export_enabled(self, on: bool) -> None:
-        self.btn_export.setEnabled(on)
-        self.btn_export_preview.setEnabled(on)
+        for btn in self._export_buttons:
+            btn.setEnabled(on)
 
     # -- internals ---------------------------------------------------------
 

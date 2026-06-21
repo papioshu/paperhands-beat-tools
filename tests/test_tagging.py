@@ -129,6 +129,53 @@ def test_crop_seconds_from_region(tmp_path):
     win.close()
 
 
+def test_placements_persist_across_reselection_and_reopen(tmp_path):
+    beat2 = tmp_path / "Two.mp3"
+    beat2.write_bytes(b"\x00\x00")
+    win = _window_with_beat(tmp_path)
+    bid = win._current_beat_id
+    win.db.add_beat(str(beat2), "Two.mp3")
+    win.db.update_beat(win.db.get_by_path(str(beat2))["id"], duration_sec=80.0)
+    win.refresh_library()
+
+    # place two tags on the first beat, then switch away and back
+    win._place_tag_at_fraction(0.1)
+    win._place_tag_at_fraction(0.5)
+    db_path = win.db.path
+
+    current = win._selected_beat_id()
+    other_row = next(
+        r for r in range(win.table.rowCount())
+        if win.table.item(r, 0).data(Qt.UserRole) != current
+    )
+    win.table.selectRow(other_row)
+    _app().processEvents()
+    assert win._placements == []                 # other beat has none
+
+    # back to the first beat -> markers restored from the DB
+    back_row = next(
+        r for r in range(win.table.rowCount())
+        if win.table.item(r, 0).data(Qt.UserRole) == bid
+    )
+    win.table.selectRow(back_row)
+    _app().processEvents()
+    assert len(win._placements) == 2
+    win.close()
+
+    # and they survived to disk: reopen a fresh window on the same DB
+    app = _app()
+    win2 = MainWindow(db_path=str(db_path))
+    app.processEvents()
+    back_row = next(
+        r for r in range(win2.table.rowCount())
+        if win2.table.item(r, 0).data(Qt.UserRole) == bid
+    )
+    win2.table.selectRow(back_row)
+    app.processEvents()
+    assert len(win2._placements) == 2
+    win2.close()
+
+
 def test_selecting_another_beat_resets_placements(tmp_path):
     beat2 = tmp_path / "Two.mp3"
     beat2.write_bytes(b"\x00\x00")

@@ -20,7 +20,13 @@ from typing import Iterable, List, Optional
 _EDITABLE = {
     "title", "bpm", "key", "genre", "subgenre", "mood", "notes",
     "duration_sec", "file_size", "waveform_path", "analysis_status",
-    "file_path", "filename",
+    "file_path", "filename", "placements",
+}
+
+# Columns added after the original schema shipped; applied as additive migrations
+# so existing library.db files upgrade in place without losing data.
+_MIGRATIONS = {
+    "placements": "ALTER TABLE beats ADD COLUMN placements TEXT",
 }
 
 _SCHEMA = """
@@ -71,7 +77,15 @@ class Database:
         self.conn.row_factory = sqlite3.Row
         self.conn.execute("PRAGMA foreign_keys = ON")
         self.conn.executescript(_SCHEMA)
+        self._migrate()
         self.conn.commit()
+
+    def _migrate(self) -> None:
+        """Apply additive column migrations to an existing beats table."""
+        existing = {row["name"] for row in self.conn.execute("PRAGMA table_info(beats)")}
+        for column, ddl in _MIGRATIONS.items():
+            if column not in existing:
+                self.conn.execute(ddl)
 
     def close(self) -> None:
         self.conn.close()

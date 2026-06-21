@@ -11,6 +11,8 @@
 
 from __future__ import annotations
 
+import json
+import os
 from pathlib import Path
 from typing import Optional
 
@@ -43,9 +45,17 @@ from app.ui.player import AudioPlayer
 from app.ui.settings_dialog import SettingsDialog
 from app.ui.tag_panel import TagLibraryPanel
 from app.ui.widgets import WaveformWidget
-from app.workers import AnalysisRunnable, ExportRunnable, ExportSignals, WorkerSignals
+from app.workers import (
+    AnalysisRunnable,
+    ExportRunnable,
+    ExportSignals,
+    FunctionExportRunnable,
+    WorkerSignals,
+)
 from app import config
+from core import exports as core_exports
 from core import metadata as core_metadata
+from core import naming as core_naming
 from core import pipeline
 from core import placement as core_placement
 from core import waveform as wf
@@ -81,6 +91,7 @@ class MainWindow(QMainWindow):
         self._placements: list = []          # list[core.models.Placement]
         self._beat_duration_sec = 0.0
         self._current_path = None
+        self._current_beat_id = None
 
         self._build_toolbar()
         self._build_body()
@@ -155,9 +166,10 @@ class MainWindow(QMainWindow):
         self.tag_panel.crop_mode_changed.connect(self._on_crop_mode)
         self.tag_panel.autoplace_requested.connect(self._on_autoplace)
         self.tag_panel.clear_requested.connect(self._on_clear_tags)
-        self.tag_panel.export_requested.connect(self._on_export)
-        self.tag_panel.export_preview_requested.connect(
-            lambda: self._run_export(preview=True))
+        self.tag_panel.export_tagged_preview_requested.connect(self._export_tagged_preview)
+        self.tag_panel.export_clean_master_requested.connect(self._export_clean_master)
+        self.tag_panel.export_tag_stem_requested.connect(self._export_tag_stem)
+        self.tag_panel.export_buyer_package_requested.connect(self._export_buyer_package)
         # The panel selects its first tag during construction (before we were
         # connected), so capture that initial selection now.
         self._active_tag = self.tag_panel.active_tag()
@@ -340,10 +352,11 @@ class MainWindow(QMainWindow):
     # -- playback ----------------------------------------------------------
 
     def _load_into_player(self, row, missing: bool) -> None:
-        # New beat -> reset any in-progress tag placements.
+        # New beat -> load its saved tag placements (persisted per beat).
         self._current_path = row["file_path"]
+        self._current_beat_id = row["id"]
         self._beat_duration_sec = row["duration_sec"] or 0.0
-        self._placements = []
+        self._placements = self._load_placements(row)
         self._refresh_markers()
 
         # Waveform peaks (if analyzed)
@@ -421,30 +434,51 @@ class MainWindow(QMainWindow):
         pos = round(fraction * self._beat_duration_sec, 3)
         self._placements.append(Placement(pos, self._active_tag))
         self._placements.sort(key=lambda p: p.position_sec)
-        self._refresh_markers()
+        self._refresh_markers(save=True)
 
     def _remove_marker(self, index: int) -> None:
         if 0 <= index < len(self._placements):
             del self._placements[index]
-            self._refresh_markers()
+            self._refresh_markers(save=True)
 
     def _move_marker(self, index: int, fraction: float) -> None:
         if 0 <= index < len(self._placements) and self._beat_duration_sec > 0:
             pos = round(fraction * self._beat_duration_sec, 3)
             self._placements[index] = Placement(pos, self._placements[index].tag_path)
             self._placements.sort(key=lambda p: p.position_sec)
-            self._refresh_markers()
+            self._refresh_markers(save=True)
+
+    # -- placement persistence --------------------------------------------
+
+    def _load_placements(self, row) -> list:
+        raw = row["placements"]
+        if not raw:
+            return []
+        try:
+            data = json.loads(raw)
+        except (json.JSONDecodeError, TypeError):
+            return []
+        return [Placement(float(d["pos"]), d["tag"]) for d in data if "pos" in d and "tag" in d]
+
+    def _save_placements(self) -> None:
+        if self._current_beat_id is None:
+            return
+        data = json.dumps([{"pos": p.position_sec, "tag": p.tag_path}
+                           for p in self._placements])
+        self.db.update_beat(self._current_beat_id, placements=data)
 
     def _on_crop_changed(self, start: float, end: float) -> None:
         if self._beat_duration_sec > 0:
             length = (end - start) * self._beat_duration_sec
             self.statusBar().showMessage(f"Preview region: {self._fmt(int(length*1000))}")
 
-    def _refresh_markers(self) -> None:
+    def _refresh_markers(self, save: bool = False) -> None:
         dur = self._beat_duration_sec or 0.0
         fractions = [p.position_sec / dur for p in self._placements] if dur else []
         self.waveform.set_markers(fractions)
         self.tag_panel.set_placement_count(len(self._placements))
+        if save:
+            self._save_placements()
 
     def _on_autoplace(self) -> None:
         if self._beat_duration_sec <= 0:
@@ -457,63 +491,136 @@ class MainWindow(QMainWindow):
         self._placements = core_placement.compute_placements(
             duration_sec=self._beat_duration_sec, tag_paths=tags, interval_sec=40.0,
         )
-        self._refresh_markers()
+        self._refresh_markers(save=True)
 
     def _on_clear_tags(self) -> None:
         self._placements = []
-        self._refresh_markers()
+        self._refresh_markers(save=True)
 
-    def _on_export(self) -> None:
-        self._run_export(preview=False)
+    # -- non-destructive export workflow ----------------------------------
+    #
+    # The cataloged file is the clean master and is never modified. Previews are
+    # rendered from clean source + tag layer; the tag stem is silence + tags. The
+    # buyer package ships the clean master + manifest, never a de-tagged file.
 
-    def _output_dir(self) -> Path:
+    def _export_base(self) -> Path:
         base = Path(self.db.path).resolve().parent if self.db.path != ":memory:" else Path.cwd()
-        d = base / "output"
+        return base
+
+    def _export_subdir(self, name: str) -> Path:
+        d = self._export_base() / name
         d.mkdir(parents=True, exist_ok=True)
         return d
 
-    def _run_export(self, preview: bool) -> None:
+    def _beat_name(self, row) -> str:
+        return core_naming.build_output_stem(
+            Path(row["filename"]).stem, row["bpm"], row["key"], suffix="")
+
+    def _export_row(self):
+        """Validate selection/readiness; return the beat row or None (with message)."""
         if self._exporting:
-            return
-        if not self._current_path or not self._placements:
-            self.statusBar().showMessage("Place at least one tag before exporting.", 3000)
-            return
-        bid = self._selected_beat_id()
-        row = self.db.get_beat(bid) if bid is not None else None
+            return None
+        if not self._current_path:
+            self.statusBar().showMessage("Select a beat first.", 3000)
+            return None
+        row = self.db.get_beat(self._current_beat_id) if self._current_beat_id else None
+        if row is None:
+            return None
+        if importer.is_missing(row):
+            self.statusBar().showMessage("The clean master is missing — relocate it.", 3000)
+            return None
+        return row
+
+    def _update_manifest(self, row, **paths) -> None:
+        base = self._export_base()
+        manifest = self._export_subdir("metadata") / f"{self._beat_name(row)}.json"
+        rel = {k: os.path.relpath(v, base).replace("\\", "/")
+               for k, v in paths.items() if v}
+        core_exports.update_manifest(str(manifest), {
+            "beat_name": self._beat_name(row),
+            "tag_times": sorted(round(p.position_sec, 3) for p in self._placements),
+            "bpm": row["bpm"],
+            "key": row["key"],
+            **rel,
+        })
+
+    def _start_export(self, fn, label: str) -> None:
+        self._set_exporting(True)
+        self.statusBar().showMessage(f"Exporting {label}…")
+        self.pool.start(FunctionExportRunnable(fn, self.export_signals))
+
+    def _export_tagged_preview(self) -> None:
+        row = self._export_row()
         if row is None:
             return
-
-        crop = None
-        suffix = "_tagged"
-        if preview:
-            crop = self.waveform.crop_seconds(self._beat_duration_sec)
-            if crop is None:
-                self.statusBar().showMessage(
-                    "Drag a region on the waveform first (crop mode).", 3000)
-                return
-            suffix = "_preview"
-
-        from core.naming import build_output_stem
-        out_stem = build_output_stem(
-            Path(row["filename"]).stem, row["bpm"], row["key"], suffix=suffix)
-        out_path = self._output_dir() / f"{out_stem}.mp3"
-
+        if not self._placements:
+            self.statusBar().showMessage("Place at least one tag first.", 3000)
+            return
+        crop = self.waveform.crop_seconds(self._beat_duration_sec)
+        out_path = self._export_subdir("previews") / f"{self._beat_name(row)}_TAGGED.mp3"
         tags = core_metadata.build_id3_tags(
-            config.producer(),
-            title=row["title"] or Path(row["filename"]).stem,
+            config.producer(), title=row["title"] or Path(row["filename"]).stem,
             genre=row["genre"], bpm=row["bpm"], key=row["key"], mood=row["mood"],
-            tags=self.db.get_tags(bid),
+            tags=self.db.get_tags(row["id"]),
         )
         cfg = TaggingConfig(producer=config.producer())
+        placements = list(self._placements)
+        src = self._current_path
 
-        self._set_exporting(True)
-        kind = "preview" if preview else "tagged beat"
-        self.statusBar().showMessage(f"Exporting {kind}…")
-        task = ExportRunnable(
-            self._current_path, self._placements, str(out_path), cfg,
-            self.export_signals, crop=crop, tags=tags,
-        )
-        self.pool.start(task)
+        def work():
+            pipeline.export_with_placements(
+                src, placements, str(out_path), cfg, crop=crop, tags=tags)
+            return str(out_path)
+
+        self._update_manifest(row, tagged_preview=str(out_path))
+        self._start_export(work, "tagged preview")
+
+    def _export_clean_master(self) -> None:
+        row = self._export_row()
+        if row is None:
+            return
+        ext = Path(row["filename"]).suffix or ".wav"
+        out_path = self._export_subdir("masters") / f"{self._beat_name(row)}{ext}"
+        src = self._current_path
+        self._update_manifest(row, clean_master=str(out_path))
+        self._start_export(
+            lambda: core_exports.export_clean_master(src, str(out_path)),
+            "clean master")
+
+    def _export_tag_stem(self) -> None:
+        row = self._export_row()
+        if row is None:
+            return
+        if not self._placements:
+            self.statusBar().showMessage("Place at least one tag first.", 3000)
+            return
+        out_path = self._export_subdir("tag_stems") / f"{self._beat_name(row)}_TAGONLY.wav"
+        placements = list(self._placements)
+        src = self._current_path
+        self._update_manifest(row, tag_stem=str(out_path))
+        self._start_export(
+            lambda: core_exports.export_tag_stem(src, placements, str(out_path)),
+            "tag stem")
+
+    def _export_buyer_package(self) -> None:
+        row = self._export_row()
+        if row is None:
+            return
+        beat_name = self._beat_name(row)
+        ext = Path(row["filename"]).suffix or ".wav"
+        master_path = self._export_subdir("masters") / f"{beat_name}{ext}"
+        manifest_path = self._export_subdir("metadata") / f"{beat_name}.json"
+        zip_path = self._export_subdir("packages") / f"{beat_name}.zip"
+        src = self._current_path
+        # Ensure the clean master + manifest exist before zipping.
+        self._update_manifest(row, clean_master=str(master_path))
+
+        def work():
+            core_exports.export_clean_master(src, str(master_path))
+            return core_exports.build_buyer_package(
+                str(master_path), str(manifest_path), str(zip_path))
+
+        self._start_export(work, "buyer package")
 
     def _set_exporting(self, on: bool) -> None:
         self._exporting = on

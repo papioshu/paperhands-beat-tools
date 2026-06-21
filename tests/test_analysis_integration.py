@@ -133,3 +133,32 @@ def test_export_preview_crop_and_metadata(tmp_path):
     lines = [ln for ln in probe.stdout.splitlines() if ln.strip()]
     assert float(lines[0]) == pytest.approx(8.0, abs=0.3)
     assert "paperhand" in probe.stdout
+
+
+def test_tag_stem_is_beat_length_silence_plus_tags(tmp_path):
+    import subprocess
+
+    from pydub import AudioSegment
+
+    from core.models import Placement
+    from core import audio, exports
+
+    beat = tmp_path / "beat.mp3"
+    tag = tmp_path / "tag.wav"
+    _make_beat(beat, seconds=8)
+    subprocess.run(
+        ["ffmpeg", "-y", "-f", "lavfi", "-i", "sine=frequency=880:duration=1",
+         "-ac", "2", "-ar", "44100", str(tag)],
+        check=True, capture_output=True,
+    )
+
+    out = tmp_path / "stem.wav"
+    exports.export_tag_stem(str(beat), [Placement(4.0, str(tag))], str(out))
+
+    beat_seg = audio.load_audio(str(beat))
+    stem = AudioSegment.from_file(str(out))
+    # Same length as the beat (within a frame or two).
+    assert abs(len(stem) - len(beat_seg)) < 50
+    # Silent before the tag, audible at the tag.
+    assert stem[0:3000].max_dBFS == float("-inf") or stem[0:3000].max_dBFS < -50
+    assert stem[4000:5000].max_dBFS > -40

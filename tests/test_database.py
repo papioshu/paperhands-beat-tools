@@ -104,6 +104,12 @@ def test_distinct_values_and_tag_names(db):
     assert db.all_tag_names() == ["dark", "melodic"]
 
 
+def test_placements_column_roundtrip(db):
+    bid = db.add_beat("/m/Night.mp3", "Night.mp3")
+    db.update_beat(bid, placements='[{"pos": 3.0, "tag": "/t/a.wav"}]')
+    assert db.get_beat(bid)["placements"] == '[{"pos": 3.0, "tag": "/t/a.wav"}]'
+
+
 def test_delete_cascades_tags(db):
     bid = db.add_beat("/m/a.mp3", "a.mp3")
     db.set_tags(bid, ["dark"])

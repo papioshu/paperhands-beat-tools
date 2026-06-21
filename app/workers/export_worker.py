@@ -19,6 +19,26 @@ class ExportSignals(QObject):
     error = Signal(str)    # message
 
 
+class FunctionExportRunnable(QRunnable):
+    """Run any zero-arg callable that returns an output path, off the UI thread.
+
+    Used for the non-destructive exports (clean master / tag stem / buyer
+    package) which each wrap their own core helper.
+    """
+
+    def __init__(self, fn, signals: ExportSignals):
+        super().__init__()
+        self.fn = fn
+        self.signals = signals
+
+    @Slot()
+    def run(self) -> None:
+        try:
+            self.signals.done.emit(self.fn() or "")
+        except Exception as exc:  # noqa: BLE001
+            self.signals.error.emit(str(exc))
+
+
 class ExportRunnable(QRunnable):
     def __init__(
         self,
