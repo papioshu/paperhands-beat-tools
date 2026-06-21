@@ -11,6 +11,7 @@ from PySide6.QtCore import QObject, Signal
 
 
 class WorkerSignals(QObject):
+    started = Signal(int)               # beat_id (analysis began for this file)
     beat_analyzed = Signal(int, dict)   # beat_id, {bpm, key, duration_sec, ...}
     error = Signal(int, str)            # beat_id, message
     progress = Signal()                 # one unit finished (ok or error)

@@ -43,6 +43,7 @@ from app.services import importer, renamer
 from app.ui.batch_rename_dialog import BatchRenameDialog
 from app.ui.detail_panel import DetailPanel
 from app.ui.duplicates_dialog import DuplicatesDialog
+from app.ui.progress_panel import ProgressPanel
 from app.ui.player import AudioPlayer
 from app.ui.settings_dialog import SettingsDialog
 from app.ui.tag_panel import TagLibraryPanel
@@ -78,6 +79,7 @@ class MainWindow(QMainWindow):
         # Background analysis
         self.pool = QThreadPool.globalInstance()
         self.signals = WorkerSignals()
+        self.signals.started.connect(self._on_analysis_started)
         self.signals.beat_analyzed.connect(self._on_analyzed)
         self.signals.error.connect(self._on_analysis_error)
         self.signals.progress.connect(self._on_progress)
@@ -201,6 +203,9 @@ class MainWindow(QMainWindow):
         self.split.setStretchFactor(1, 2)
         root.addWidget(self.split, 1)
 
+        self.progress = ProgressPanel()
+        root.addWidget(self.progress)
+
         self._root_layout = root
         self.setCentralWidget(central)
 
@@ -305,7 +310,10 @@ class MainWindow(QMainWindow):
         if not pending:
             return
         peaks_dir = self._peaks_dir()
+        first_batch = self._analysis_total == 0
         self._analysis_total += len(pending)
+        if first_batch:
+            self.progress.begin("Analyzing", self._analysis_total)
         for b in pending:
             task = AnalysisRunnable(
                 b["id"], b["file_path"], str(peaks_dir / f"{b['id']}.npy"), self.signals
@@ -313,12 +321,29 @@ class MainWindow(QMainWindow):
             self.pool.start(task)
         self._update_progress_message()
 
+    def _on_analysis_started(self, beat_id: int) -> None:
+        row = self.db.get_beat(beat_id)
+        name = row["filename"] if row else str(beat_id)
+        n = min(self._analysis_done + 1, self._analysis_total)
+        self.progress.update(self._analysis_done, self._analysis_total,
+                             f"Analyzing {n} of {self._analysis_total}: {name}")
+
     def _on_analyzed(self, beat_id: int, result: dict) -> None:
         self.db.update_beat(beat_id, **result)
+        row = self.db.get_beat(beat_id)
+        extra = []
+        if result.get("bpm") is not None:
+            extra.append(f"{result['bpm']:g} BPM")
+        if result.get("key"):
+            extra.append(result["key"])
+        tail = f"  ({', '.join(extra)})" if extra else ""
+        self.progress.log_line(f"✓ {row['filename'] if row else beat_id}{tail}")
         self._refresh_row_or_table(beat_id)
 
     def _on_analysis_error(self, beat_id: int, message: str) -> None:
         self.db.update_beat(beat_id, analysis_status="error")
+        row = self.db.get_beat(beat_id)
+        self.progress.log_line(f"✗ {row['filename'] if row else beat_id}: {message}")
         self._refresh_row_or_table(beat_id)
 
     def _on_progress(self) -> None:
@@ -326,10 +351,12 @@ class MainWindow(QMainWindow):
         self._update_progress_message()
         if self._analysis_done >= self._analysis_total:
             self._analysis_total = self._analysis_done = 0
+            self.progress.end("Analysis complete")
             self.statusBar().showMessage("Analysis complete", 3000)
 
     def _update_progress_message(self) -> None:
         if self._analysis_total:
+            self.progress.update(self._analysis_done, self._analysis_total)
             self.statusBar().showMessage(
                 f"Analyzing {self._analysis_done}/{self._analysis_total}…"
             )
@@ -636,6 +663,7 @@ class MainWindow(QMainWindow):
 
     def _start_export(self, fn, label: str) -> None:
         self._set_exporting(True)
+        self.progress.begin(f"Exporting {label}", 1)
         self.statusBar().showMessage(f"Exporting {label}…")
         self.pool.start(FunctionExportRunnable(fn, self.export_signals))
 
@@ -725,10 +753,15 @@ class MainWindow(QMainWindow):
 
     def _on_export_done(self, out_path: str) -> None:
         self._set_exporting(False)
+        self.progress.update(1, 1)
+        self.progress.log_line(f"✓ Exported → {Path(out_path).name}")
+        self.progress.end("Export complete", folder=str(Path(out_path).parent))
         self.statusBar().showMessage(f"Exported → {Path(out_path).name}", 5000)
 
     def _on_export_error(self, message: str) -> None:
         self._set_exporting(False)
+        self.progress.log_line(f"✗ Export failed: {message}")
+        self.progress.end("Export failed")
         QMessageBox.warning(self, "Export failed", message)
         self.statusBar().showMessage("Export failed", 3000)
 
@@ -826,7 +859,11 @@ class MainWindow(QMainWindow):
         )
         if not paths:
             return
+        self.progress.begin("Importing", 1)
         added = importer.import_paths(self.db, paths)
+        self.progress.log_line(
+            f"Imported {added} new beat(s) from {len(paths)} selected file(s)")
+        self.progress.end(f"Imported {added} beat(s)")
         self.refresh_library(self.search.text())
         self.statusBar().showMessage(f"Imported {added} new beat(s)", 3000)
         self.analyze_pending()
@@ -835,7 +872,10 @@ class MainWindow(QMainWindow):
         folder = QFileDialog.getExistingDirectory(self, "Scan a folder for beats")
         if not folder:
             return
+        self.progress.begin("Scanning", 1)
         added = importer.scan_folder(self.db, folder)
+        self.progress.log_line(f"Scanned {folder}: {added} new beat(s)")
+        self.progress.end(f"Scanned {added} beat(s)")
         self.refresh_library(self.search.text())
         self.statusBar().showMessage(f"Scanned: {added} new beat(s)", 3000)
         self.analyze_pending()

@@ -23,6 +23,7 @@ class AnalysisRunnable(QRunnable):
 
     @Slot()
     def run(self) -> None:
+        self.signals.started.emit(self.beat_id)
         try:
             import json
 
