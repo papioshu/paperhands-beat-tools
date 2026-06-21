@@ -601,7 +601,7 @@ class MainWindow(QMainWindow):
     def _open_settings(self) -> None:
         dlg = SettingsDialog(self.db, self)
         dlg.exec()
-        if dlg.added_count:
+        if dlg.added_count or dlg.catalog_changed:
             self.refresh_library(self.search.text())
             self.analyze_pending()
 

@@ -20,7 +20,7 @@ from PySide6.QtWidgets import (
 )
 
 from app import config
-from app.services import importer
+from app.services import catalog_io, importer
 
 
 class SettingsDialog(QDialog):
@@ -70,6 +70,23 @@ class SettingsDialog(QDialog):
         row.addWidget(self.btn_scan)
         layout.addLayout(row)
 
+        # Catalog backup (export / import metadata)
+        backup_heading = QLabel("Catalog backup")
+        backup_heading.setObjectName("Heading")
+        layout.addWidget(backup_heading)
+        backup_hint = QLabel("Export all beats + tags to CSV/JSON, or restore a "
+                             "previously exported catalog.")
+        backup_hint.setObjectName("SubHeading")
+        backup_hint.setWordWrap(True)
+        layout.addWidget(backup_hint)
+        backup_row = QHBoxLayout()
+        self.btn_export_catalog = QPushButton("Export catalog…")
+        self.btn_import_catalog = QPushButton("Import catalog…")
+        backup_row.addWidget(self.btn_export_catalog)
+        backup_row.addWidget(self.btn_import_catalog)
+        backup_row.addStretch(1)
+        layout.addLayout(backup_row)
+
         close_row = QHBoxLayout()
         close_row.addStretch(1)
         self.btn_close = QPushButton("Close")
@@ -80,9 +97,12 @@ class SettingsDialog(QDialog):
         self.btn_add.clicked.connect(self._add)
         self.btn_remove.clicked.connect(self._remove)
         self.btn_scan.clicked.connect(self._scan)
+        self.btn_export_catalog.clicked.connect(self._export_catalog)
+        self.btn_import_catalog.clicked.connect(self._import_catalog)
         self.btn_close.clicked.connect(self.accept)
 
-        self.added_count = 0  # total new beats from scans this session
+        self.added_count = 0       # new beats from scans this session
+        self.catalog_changed = False  # whether an import altered the library
 
     def _add(self) -> None:
         folder = QFileDialog.getExistingDirectory(self, "Add a folder to watch")
@@ -96,6 +116,33 @@ class SettingsDialog(QDialog):
         if item:
             config.remove_watched_folder(item.text())
             self.list.takeItem(self.list.row(item))
+
+    def _export_catalog(self) -> None:
+        path, _ = QFileDialog.getSaveFileName(
+            self, "Export catalog", "catalog.csv",
+            "CSV (*.csv);;JSON (*.json)")
+        if not path:
+            return
+        try:
+            n = catalog_io.export_catalog(self.db, path)
+        except Exception as exc:  # noqa: BLE001
+            QMessageBox.warning(self, "Export failed", str(exc))
+            return
+        QMessageBox.information(self, "Catalog exported", f"Wrote {n} beat(s).")
+
+    def _import_catalog(self) -> None:
+        path, _ = QFileDialog.getOpenFileName(
+            self, "Import catalog", "", "Catalog (*.csv *.json)")
+        if not path:
+            return
+        try:
+            added, updated = catalog_io.import_catalog(self.db, path)
+        except Exception as exc:  # noqa: BLE001
+            QMessageBox.warning(self, "Import failed", str(exc))
+            return
+        self.catalog_changed = True
+        QMessageBox.information(self, "Catalog imported",
+                                f"Added {added}, updated {updated} beat(s).")
 
     def _scan(self) -> None:
         folders = config.watched_folders()
