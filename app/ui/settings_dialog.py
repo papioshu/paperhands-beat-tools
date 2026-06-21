@@ -47,6 +47,21 @@ class SettingsDialog(QDialog):
             lambda: config.set_producer(self.producer_edit.text())
         )
 
+        # Tag library folder (also changeable from the tag panel)
+        tags_heading = QLabel("Tag library folder")
+        tags_heading.setObjectName("Heading")
+        layout.addWidget(tags_heading)
+        tags_row = QHBoxLayout()
+        self.tags_label = QLabel(config.tags_folder())
+        self.tags_label.setObjectName("SubHeading")
+        self.tags_label.setWordWrap(True)
+        self.btn_tags_folder = QPushButton("Change…")
+        self.btn_tags_folder.setFixedWidth(90)
+        tags_row.addWidget(self.tags_label, 1)
+        tags_row.addWidget(self.btn_tags_folder)
+        layout.addLayout(tags_row)
+        self.btn_tags_folder.clicked.connect(self._choose_tags_folder)
+
         heading = QLabel("Watched folders")
         heading.setObjectName("Heading")
         layout.addWidget(heading)
@@ -111,6 +126,7 @@ class SettingsDialog(QDialog):
 
         self.added_count = 0       # new beats from scans this session
         self.catalog_changed = False  # whether an import altered the library
+        self.tags_changed = False     # whether the tag library folder changed
 
     def _add(self) -> None:
         folder = QFileDialog.getExistingDirectory(self, "Add a folder to watch")
@@ -124,6 +140,13 @@ class SettingsDialog(QDialog):
         if item:
             config.remove_watched_folder(item.text())
             self.list.takeItem(self.list.row(item))
+
+    def _choose_tags_folder(self) -> None:
+        folder = QFileDialog.getExistingDirectory(self, "Choose tag library folder")
+        if folder:
+            config.set_tags_folder(folder)
+            self.tags_label.setText(folder)
+            self.tags_changed = True
 
     def _export_catalog(self) -> None:
         path, _ = QFileDialog.getSaveFileName(

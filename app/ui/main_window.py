@@ -107,7 +107,9 @@ class MainWindow(QMainWindow):
         self.statusBar().showMessage("Ready")
 
         self.refresh_library()
+        self._startup_scan()          # auto-pick-up new files from watched folders
         self.analyze_pending()
+        self._update_duplicate_indicator()
 
     # -- construction ------------------------------------------------------
 
@@ -321,6 +323,35 @@ class MainWindow(QMainWindow):
             self.pool.start(task)
         self._update_progress_message()
 
+    def _startup_scan(self) -> None:
+        """Re-scan remembered folders on launch; dedupe skips already-cataloged."""
+        folders = config.watched_folders()
+        if not folders:
+            return
+        total = 0
+        for folder in folders:
+            try:
+                total += importer.scan_folder(self.db, folder)
+            except NotADirectoryError:
+                continue
+        if total:
+            self.refresh_library(self.search.text())
+            self.statusBar().showMessage(
+                f"Startup scan: {total} new beat(s) added (existing skipped)", 4000)
+
+    def _update_duplicate_indicator(self) -> None:
+        """Light up the Duplicates button (orange + count) when dupes exist."""
+        items = [(b["id"], b["fingerprint"]) for b in self.db.list_beats()
+                 if b["fingerprint"]]
+        groups = core_fingerprint.group_duplicates(items)
+        if groups:
+            self.btn_duplicates.setText(f"Duplicates ({len(groups)})")
+            self.btn_duplicates.setStyleSheet(
+                "background-color: #FFB454; color: #1A1A1A; font-weight: 600;")
+        else:
+            self.btn_duplicates.setText("Duplicates")
+            self.btn_duplicates.setStyleSheet("")
+
     def _on_analysis_started(self, beat_id: int) -> None:
         row = self.db.get_beat(beat_id)
         name = row["filename"] if row else str(beat_id)
@@ -353,6 +384,7 @@ class MainWindow(QMainWindow):
             self._analysis_total = self._analysis_done = 0
             self.progress.end("Analysis complete")
             self.statusBar().showMessage("Analysis complete", 3000)
+            self._update_duplicate_indicator()   # fingerprints now available
 
     def _update_progress_message(self) -> None:
         if self._analysis_total:
@@ -410,6 +442,7 @@ class MainWindow(QMainWindow):
         dlg.exec()
         if dlg.removed:
             self.refresh_library(self.search.text())
+            self._update_duplicate_indicator()
             self.statusBar().showMessage(
                 f"Removed {dlg.removed} duplicate(s) from library", 4000)
 
@@ -886,6 +919,9 @@ class MainWindow(QMainWindow):
         if dlg.added_count or dlg.catalog_changed:
             self.refresh_library(self.search.text())
             self.analyze_pending()
+            self._update_duplicate_indicator()
+        if dlg.tags_changed:
+            self.tag_panel.refresh_tags()
 
     def closeEvent(self, event):  # noqa: N802 - Qt override
         self.db.close()
