@@ -26,7 +26,7 @@ class AnalysisRunnable(QRunnable):
         try:
             import json
 
-            from core import audio, detection, fingerprint, structure, waveform
+            from core import audio, detection, fingerprint, mood, structure, waveform
 
             seg = audio.load_audio(self.file_path)
             samples, sr = audio.to_mono_float(seg)
@@ -43,6 +43,10 @@ class AnalysisRunnable(QRunnable):
                 hook = structure.detect_hook(samples, sr, sections)
             except Exception:  # noqa: BLE001 - structure is best-effort
                 sections, drop, hook = [], None, None
+            try:
+                mood_suggested, _ = mood.detect_mood(samples, sr, det.key, det.bpm)
+            except Exception:  # noqa: BLE001 - mood is best-effort
+                mood_suggested = None
 
             result = {
                 "bpm": det.bpm,
@@ -59,6 +63,7 @@ class AnalysisRunnable(QRunnable):
                 "drop_sec": drop,
                 "hook_start": hook[0] if hook else None,
                 "hook_end": hook[1] if hook else None,
+                "mood_suggested": mood_suggested,
             }
             self.signals.beat_analyzed.emit(self.beat_id, result)
         except Exception as exc:  # noqa: BLE001 - report, never crash the pool

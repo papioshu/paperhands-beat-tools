@@ -125,6 +125,31 @@ def test_detail_panel_shows_candidates_and_override_saves(tmp_path):
     win.close()
 
 
+def test_empty_mood_prefilled_with_suggestion(tmp_path):
+    beat = tmp_path / "Night.mp3"
+    beat.write_bytes(b"\x00")
+    db_path = tmp_path / "lib.db"
+    seed = Database(str(db_path))
+    bid = seed.add_beat(str(beat), "Night.mp3")
+    seed.update_beat(bid, analysis_status="done", duration_sec=100.0,
+                     mood_suggested="dark")        # no manual mood set
+    seed.close()
+
+    app = _app()
+    win = MainWindow(db_path=str(db_path))
+    app.processEvents()
+    win.table.selectRow(0)
+    app.processEvents()
+    assert win.detail.mood.currentText() == "dark"
+    assert "suggested" in win.detail.confidence.text()
+
+    # A manual mood is NOT overwritten by the suggestion.
+    win.db.update_beat(bid, mood="Chill")
+    win._on_selection()
+    assert win.detail.mood.currentText() == "Chill"
+    win.close()
+
+
 def test_selecting_analyzed_beat_loads_waveform(tmp_path):
     import numpy as np
     from core import waveform as wf

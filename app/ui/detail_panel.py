@@ -147,7 +147,15 @@ class DetailPanel(QFrame):
 
         self.genre.setCurrentText(row["genre"] or "")
         self.subgenre.setCurrentText(row["subgenre"] or "")
-        self.mood.setCurrentText(row["mood"] or "")
+        # Pre-fill an empty mood with the detected suggestion (user can override).
+        mood_val = row["mood"] or ""
+        suggested = _row_get(row, "mood_suggested")
+        if not mood_val and suggested:
+            mood_val = suggested
+            self.confidence.setText(
+                (self.confidence.text() + "  ·  " if self.confidence.text() else "")
+                + f"mood suggested: {suggested}")
+        self.mood.setCurrentText(mood_val)
         self.tags.setText(", ".join(tag_names))
         self.notes.setPlainText(row["notes"] or "")
 
@@ -212,6 +220,14 @@ class DetailPanel(QFrame):
         }
         tag_names = [t.strip() for t in self.tags.text().split(",") if t.strip()]
         self.saved.emit(self._beat_id, fields, tag_names)
+
+
+def _row_get(row, column):
+    """Read a column from a sqlite3.Row, tolerating its absence (older rows)."""
+    try:
+        return row[column]
+    except (IndexError, KeyError):
+        return None
 
 
 def _parse_list(raw):
