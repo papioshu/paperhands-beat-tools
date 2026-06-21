@@ -26,13 +26,17 @@ class AnalysisRunnable(QRunnable):
         try:
             import json
 
-            from core import audio, detection, waveform
+            from core import audio, detection, fingerprint, waveform
 
             seg = audio.load_audio(self.file_path)
             samples, sr = audio.to_mono_float(seg)
 
             det = detection.detect_bpm_key(samples, sr)
             saved = waveform.generate_peaks_file(samples, self.peaks_path)
+            try:
+                fp = fingerprint.compute_fingerprint(samples, sr)
+            except Exception:  # noqa: BLE001 - fingerprint is best-effort
+                fp = ""
 
             result = {
                 "bpm": det.bpm,
@@ -44,6 +48,7 @@ class AnalysisRunnable(QRunnable):
                 "key_confidence": det.key_confidence,
                 "bpm_candidates": json.dumps(list(det.bpm_candidates)),
                 "key_candidates": json.dumps(list(det.key_candidates)),
+                "fingerprint": fp,
             }
             self.signals.beat_analyzed.emit(self.beat_id, result)
         except Exception as exc:  # noqa: BLE001 - report, never crash the pool

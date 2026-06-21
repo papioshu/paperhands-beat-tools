@@ -42,6 +42,7 @@ from app.db import Database
 from app.services import importer, renamer
 from app.ui.batch_rename_dialog import BatchRenameDialog
 from app.ui.detail_panel import DetailPanel
+from app.ui.duplicates_dialog import DuplicatesDialog
 from app.ui.player import AudioPlayer
 from app.ui.settings_dialog import SettingsDialog
 from app.ui.tag_panel import TagLibraryPanel
@@ -55,6 +56,7 @@ from app.workers import (
 )
 from app import config
 from core import exports as core_exports
+from core import fingerprint as core_fingerprint
 from core import metadata as core_metadata
 from core import naming as core_naming
 from core import pipeline
@@ -113,9 +115,11 @@ class MainWindow(QMainWindow):
         self.btn_import.setObjectName("Primary")
         self.btn_scan = QPushButton("Scan Folder")
         self.btn_batch_rename = QPushButton("Batch Rename")
+        self.btn_duplicates = QPushButton("Duplicates")
         tb.addWidget(self.btn_import)
         tb.addWidget(self.btn_scan)
         tb.addWidget(self.btn_batch_rename)
+        tb.addWidget(self.btn_duplicates)
 
         self.search = QLineEdit()
         self.search.setPlaceholderText("Search title, genre, mood, key, tag…")
@@ -134,6 +138,7 @@ class MainWindow(QMainWindow):
         self.btn_import.clicked.connect(self._import_files)
         self.btn_scan.clicked.connect(self._scan_folder)
         self.btn_batch_rename.clicked.connect(self._batch_rename)
+        self.btn_duplicates.clicked.connect(self._find_duplicates)
         self.btn_settings.clicked.connect(self._open_settings)
         self.search.textChanged.connect(lambda t: self.refresh_library(t))
 
@@ -357,6 +362,22 @@ class MainWindow(QMainWindow):
         if dlg.applied:
             self.refresh_library(self.search.text())
             self.statusBar().showMessage(f"Renamed {dlg.applied} file(s)", 4000)
+
+    def _find_duplicates(self) -> None:
+        items = [(b["id"], b["fingerprint"]) for b in self.db.list_beats()
+                 if b["fingerprint"]]
+        groups_ids = core_fingerprint.group_duplicates(items)
+        if not groups_ids:
+            self.statusBar().showMessage(
+                "No duplicates found (beats must be analyzed first).", 4000)
+            return
+        groups = [[self.db.get_beat(i) for i in g] for g in groups_ids]
+        dlg = DuplicatesDialog(self.db, groups, self)
+        dlg.exec()
+        if dlg.removed:
+            self.refresh_library(self.search.text())
+            self.statusBar().showMessage(
+                f"Removed {dlg.removed} duplicate(s) from library", 4000)
 
     def _on_selection(self) -> None:
         bid = self._selected_beat_id()
