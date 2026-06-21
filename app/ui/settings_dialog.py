@@ -8,6 +8,7 @@ beats were cataloged.
 from __future__ import annotations
 
 from PySide6.QtWidgets import (
+    QCheckBox,
     QDialog,
     QFileDialog,
     QHBoxLayout,
@@ -86,6 +87,13 @@ class SettingsDialog(QDialog):
         backup_row.addWidget(self.btn_import_catalog)
         backup_row.addStretch(1)
         layout.addLayout(backup_row)
+
+        # Export options
+        self.chk_master_wav = QCheckBox(
+            "Convert clean master to WAV on export (default: copy verbatim)")
+        self.chk_master_wav.setChecked(config.convert_master_to_wav())
+        self.chk_master_wav.toggled.connect(config.set_convert_master_to_wav)
+        layout.addWidget(self.chk_master_wav)
 
         close_row = QHBoxLayout()
         close_row.addStretch(1)

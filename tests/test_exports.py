@@ -52,3 +52,12 @@ def test_clean_master_is_verbatim_copy(tmp_path):
     dst = tmp_path / "out" / "master.wav"
     exports.export_clean_master(str(src), str(dst))
     assert dst.read_bytes() == b"\x01\x02\x03\x04"   # untouched, byte-for-byte
+
+
+def test_clean_master_to_wav_keeps_wav_source_verbatim(tmp_path):
+    # to_wav=True but the source is already WAV -> still a verbatim copy (no decode)
+    src = tmp_path / "master.wav"
+    src.write_bytes(b"\x05\x06\x07\x08")
+    dst = tmp_path / "out" / "master.wav"
+    exports.export_clean_master(str(src), str(dst), to_wav=True)
+    assert dst.read_bytes() == b"\x05\x06\x07\x08"

@@ -575,16 +575,21 @@ class MainWindow(QMainWindow):
         self._update_manifest(row, tagged_preview=str(out_path))
         self._start_export(work, "tagged preview")
 
+    def _master_path(self, row) -> Path:
+        to_wav = config.convert_master_to_wav()
+        ext = ".wav" if to_wav else (Path(row["filename"]).suffix or ".wav")
+        return self._export_subdir("masters") / f"{self._beat_name(row)}{ext}"
+
     def _export_clean_master(self) -> None:
         row = self._export_row()
         if row is None:
             return
-        ext = Path(row["filename"]).suffix or ".wav"
-        out_path = self._export_subdir("masters") / f"{self._beat_name(row)}{ext}"
+        out_path = self._master_path(row)
         src = self._current_path
+        to_wav = config.convert_master_to_wav()
         self._update_manifest(row, clean_master=str(out_path))
         self._start_export(
-            lambda: core_exports.export_clean_master(src, str(out_path)),
+            lambda: core_exports.export_clean_master(src, str(out_path), to_wav=to_wav),
             "clean master")
 
     def _export_tag_stem(self) -> None:
@@ -607,16 +612,16 @@ class MainWindow(QMainWindow):
         if row is None:
             return
         beat_name = self._beat_name(row)
-        ext = Path(row["filename"]).suffix or ".wav"
-        master_path = self._export_subdir("masters") / f"{beat_name}{ext}"
+        master_path = self._master_path(row)
         manifest_path = self._export_subdir("metadata") / f"{beat_name}.json"
         zip_path = self._export_subdir("packages") / f"{beat_name}.zip"
         src = self._current_path
+        to_wav = config.convert_master_to_wav()
         # Ensure the clean master + manifest exist before zipping.
         self._update_manifest(row, clean_master=str(master_path))
 
         def work():
-            core_exports.export_clean_master(src, str(master_path))
+            core_exports.export_clean_master(src, str(master_path), to_wav=to_wav)
             return core_exports.build_buyer_package(
                 str(master_path), str(manifest_path), str(zip_path))
 

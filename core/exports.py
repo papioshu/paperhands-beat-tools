@@ -20,10 +20,19 @@ from typing import Dict, Optional, Sequence
 from . import audio
 
 
-def export_clean_master(src_path: str, dst_path: str) -> str:
-    """Copy the untouched master into the export tree (verbatim, never re-encoded)."""
+def export_clean_master(src_path: str, dst_path: str, to_wav: bool = False) -> str:
+    """Place the untouched master into the export tree.
+
+    By default this is a verbatim byte-for-byte copy (never re-encoded — the most
+    non-destructive choice). With ``to_wav=True`` a non-WAV source is decoded once
+    to PCM WAV (e.g. for buyers who require WAV); a WAV source is still copied
+    verbatim.
+    """
     Path(dst_path).parent.mkdir(parents=True, exist_ok=True)
-    shutil.copy2(src_path, dst_path)
+    if to_wav and Path(src_path).suffix.lower() != ".wav":
+        audio.load_audio(src_path).export(dst_path, format="wav")
+    else:
+        shutil.copy2(src_path, dst_path)
     return dst_path
 
 

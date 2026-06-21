@@ -9,6 +9,7 @@ APP = "BeatTools"
 _KEY = "watched_folders"
 _TAGS_KEY = "tags_folder"
 _PRODUCER_KEY = "producer"
+_MASTER_WAV_KEY = "convert_master_to_wav"
 
 
 def _settings():
@@ -58,3 +59,13 @@ def producer(default: str = "paperhand") -> str:
 
 def set_producer(name: str) -> None:
     _settings().setValue(_PRODUCER_KEY, name.strip() or "paperhand")
+
+
+def convert_master_to_wav(default: bool = False) -> bool:
+    """Whether 'Export Clean Master' converts to WAV (vs verbatim copy)."""
+    val = _settings().value(_MASTER_WAV_KEY, default)
+    return str(val).lower() in ("1", "true", "yes")
+
+
+def set_convert_master_to_wav(on: bool) -> None:
+    _settings().setValue(_MASTER_WAV_KEY, "1" if on else "0")

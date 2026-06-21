@@ -162,3 +162,21 @@ def test_tag_stem_is_beat_length_silence_plus_tags(tmp_path):
     # Silent before the tag, audible at the tag.
     assert stem[0:3000].max_dBFS == float("-inf") or stem[0:3000].max_dBFS < -50
     assert stem[4000:5000].max_dBFS > -40
+
+
+def test_clean_master_to_wav_converts_mp3_source(tmp_path):
+    from core import exports
+
+    src = tmp_path / "beat.mp3"
+    _make_beat(src, seconds=5)
+    dst = tmp_path / "masters" / "beat.wav"
+    exports.export_clean_master(str(src), str(dst), to_wav=True)
+    assert dst.exists()
+
+    probe = subprocess.run(
+        ["ffprobe", "-v", "error", "-show_entries",
+         "stream=codec_name:format=duration", "-of", "default=nw=1:nk=1", str(dst)],
+        check=True, capture_output=True, text=True,
+    )
+    assert "pcm" in probe.stdout                      # decoded to PCM WAV
+    assert float(probe.stdout.splitlines()[-1]) == pytest.approx(5.0, abs=0.3)
