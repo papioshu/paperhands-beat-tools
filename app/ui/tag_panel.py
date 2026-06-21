@@ -1,0 +1,131 @@
+"""Tag library + placement controls.
+
+Lists the producer tags in your tags folder. Pick one, toggle "Place on click",
+then click anywhere on the waveform to drop that tag there (click a marker again
+to remove it). Auto-place lays down default interval placements you can tweak,
+and Export renders the tagged beat through the shared core engine.
+"""
+
+from __future__ import annotations
+
+from pathlib import Path
+from typing import Optional
+
+from PySide6.QtCore import Qt, Signal
+from PySide6.QtWidgets import (
+    QFileDialog,
+    QFrame,
+    QHBoxLayout,
+    QLabel,
+    QListWidget,
+    QListWidgetItem,
+    QPushButton,
+    QVBoxLayout,
+)
+
+from app import config
+from app.services.importer import AUDIO_EXTS
+
+
+class TagLibraryPanel(QFrame):
+    active_tag_changed = Signal(str)     # path ("" if none)
+    place_mode_changed = Signal(bool)
+    autoplace_requested = Signal()
+    clear_requested = Signal()
+    export_requested = Signal()
+
+    def __init__(self):
+        super().__init__()
+        self.setObjectName("Panel")
+
+        layout = QVBoxLayout(self)
+        heading = QLabel("Tag library")
+        heading.setObjectName("Heading")
+        layout.addWidget(heading)
+
+        folder_row = QHBoxLayout()
+        self.folder_label = QLabel("")
+        self.folder_label.setObjectName("SubHeading")
+        self.folder_label.setWordWrap(True)
+        self.btn_folder = QPushButton("Folder…")
+        self.btn_folder.setFixedWidth(80)
+        folder_row.addWidget(self.folder_label, 1)
+        folder_row.addWidget(self.btn_folder)
+        layout.addLayout(folder_row)
+
+        self.list = QListWidget()
+        self.list.setMaximumHeight(140)
+        layout.addWidget(self.list)
+
+        self.btn_place = QPushButton("Place on click")
+        self.btn_place.setObjectName("Accent")
+        self.btn_place.setCheckable(True)
+        layout.addWidget(self.btn_place)
+
+        action_row = QHBoxLayout()
+        self.btn_auto = QPushButton("Auto-place")
+        self.btn_clear = QPushButton("Clear")
+        action_row.addWidget(self.btn_auto)
+        action_row.addWidget(self.btn_clear)
+        layout.addLayout(action_row)
+
+        self.count_label = QLabel("0 tags placed")
+        self.count_label.setObjectName("AccentLime")
+        layout.addWidget(self.count_label)
+
+        self.btn_export = QPushButton("Export Tagged ▸")
+        self.btn_export.setObjectName("Primary")
+        layout.addWidget(self.btn_export)
+        layout.addStretch(1)
+
+        # wiring
+        self.btn_folder.clicked.connect(self._choose_folder)
+        self.list.currentItemChanged.connect(self._on_tag_changed)
+        self.btn_place.toggled.connect(self.place_mode_changed)
+        self.btn_auto.clicked.connect(self.autoplace_requested)
+        self.btn_clear.clicked.connect(self.clear_requested)
+        self.btn_export.clicked.connect(self.export_requested)
+
+        self.refresh_tags()
+
+    # -- public API --------------------------------------------------------
+
+    def refresh_tags(self) -> None:
+        folder = config.tags_folder()
+        self.folder_label.setText(folder)
+        self.list.clear()
+        p = Path(folder)
+        if p.is_dir():
+            for f in sorted(p.iterdir()):
+                if f.is_file() and f.suffix.lower() in AUDIO_EXTS:
+                    item = QListWidgetItem(f.name)
+                    item.setData(Qt.UserRole, str(f.resolve()))
+                    self.list.addItem(item)
+        if self.list.count():
+            self.list.setCurrentRow(0)
+        else:
+            self.active_tag_changed.emit("")
+
+    def active_tag(self) -> Optional[str]:
+        item = self.list.currentItem()
+        return item.data(Qt.UserRole) if item else None
+
+    def all_tag_paths(self) -> list:
+        return [self.list.item(i).data(Qt.UserRole) for i in range(self.list.count())]
+
+    def set_placement_count(self, n: int) -> None:
+        self.count_label.setText(f"{n} tag{'s' if n != 1 else ''} placed")
+
+    def place_mode(self) -> bool:
+        return self.btn_place.isChecked()
+
+    # -- internals ---------------------------------------------------------
+
+    def _choose_folder(self) -> None:
+        folder = QFileDialog.getExistingDirectory(self, "Choose tags folder")
+        if folder:
+            config.set_tags_folder(folder)
+            self.refresh_tags()
+
+    def _on_tag_changed(self, current, _previous) -> None:
+        self.active_tag_changed.emit(current.data(Qt.UserRole) if current else "")

@@ -41,9 +41,13 @@ from app.services import importer, renamer
 from app.ui.detail_panel import DetailPanel
 from app.ui.player import AudioPlayer
 from app.ui.settings_dialog import SettingsDialog
+from app.ui.tag_panel import TagLibraryPanel
 from app.ui.widgets import WaveformWidget
 from app.workers import AnalysisRunnable, WorkerSignals
+from core import pipeline
+from core import placement as core_placement
 from core import waveform as wf
+from core.models import Placement, TaggingConfig
 
 _COLUMNS = ["Title", "BPM", "Key", "Genre", "Mood", "Status"]
 
@@ -63,6 +67,12 @@ class MainWindow(QMainWindow):
         self.signals.progress.connect(self._on_progress)
         self._analysis_total = 0
         self._analysis_done = 0
+
+        # Tag placement state (Phase 5)
+        self._active_tag = None
+        self._placements: list = []          # list[core.models.Placement]
+        self._beat_duration_sec = 0.0
+        self._current_path = None
 
         self._build_toolbar()
         self._build_body()
@@ -130,7 +140,23 @@ class MainWindow(QMainWindow):
         self.detail.saved.connect(self._on_save)
         self.detail.rename_requested.connect(self._on_rename)
         self.detail.relocate_requested.connect(self._on_relocate)
-        self.split.addWidget(self.detail)
+
+        self.tag_panel = TagLibraryPanel()
+        self.tag_panel.active_tag_changed.connect(self._on_active_tag)
+        self.tag_panel.place_mode_changed.connect(self._on_place_mode)
+        self.tag_panel.autoplace_requested.connect(self._on_autoplace)
+        self.tag_panel.clear_requested.connect(self._on_clear_tags)
+        self.tag_panel.export_requested.connect(self._on_export)
+        # The panel selects its first tag during construction (before we were
+        # connected), so capture that initial selection now.
+        self._active_tag = self.tag_panel.active_tag()
+
+        right = QSplitter(Qt.Vertical)
+        right.addWidget(self.detail)
+        right.addWidget(self.tag_panel)
+        right.setStretchFactor(0, 3)
+        right.setStretchFactor(1, 2)
+        self.split.addWidget(right)
 
         self.split.setStretchFactor(0, 3)
         self.split.setStretchFactor(1, 2)
@@ -183,7 +209,7 @@ class MainWindow(QMainWindow):
             lambda playing: self.btn_play.setText("Pause" if playing else "Play")
         )
         self.seek.sliderMoved.connect(self.player.set_position)
-        self.waveform.seek_requested.connect(self._seek_fraction)
+        self.waveform.seek_requested.connect(self._on_waveform_click)
 
     # -- data --------------------------------------------------------------
 
@@ -299,6 +325,12 @@ class MainWindow(QMainWindow):
     # -- playback ----------------------------------------------------------
 
     def _load_into_player(self, row, missing: bool) -> None:
+        # New beat -> reset any in-progress tag placements.
+        self._current_path = row["file_path"]
+        self._beat_duration_sec = row["duration_sec"] or 0.0
+        self._placements = []
+        self._refresh_markers()
+
         # Waveform peaks (if analyzed)
         self.waveform.set_position(0.0)
         path = row["waveform_path"]
@@ -345,6 +377,84 @@ class MainWindow(QMainWindow):
     def _fmt(ms: int) -> str:
         s = int(ms // 1000)
         return f"{s // 60}:{s % 60:02d}"
+
+    # -- tagging (Phase 5) -------------------------------------------------
+
+    def _on_active_tag(self, path: str) -> None:
+        self._active_tag = path or None
+
+    def _on_place_mode(self, on: bool) -> None:
+        hint = ("Click the waveform to place the selected tag (click a marker to "
+                "remove it)." if on else "Ready")
+        self.statusBar().showMessage(hint)
+
+    def _on_waveform_click(self, fraction: float) -> None:
+        """In place-mode, drop/remove a tag; otherwise seek."""
+        if not (self.tag_panel.place_mode() and self._active_tag
+                and self._beat_duration_sec > 0):
+            self._seek_fraction(fraction)
+            return
+
+        pos = fraction * self._beat_duration_sec
+        threshold = max(0.5, 0.01 * self._beat_duration_sec)  # seconds
+        for pl in list(self._placements):
+            if pl.tag_path == self._active_tag and abs(pl.position_sec - pos) <= threshold:
+                self._placements.remove(pl)  # toggle off
+                self._refresh_markers()
+                return
+        self._placements.append(Placement(round(pos, 3), self._active_tag))
+        self._placements.sort(key=lambda p: p.position_sec)
+        self._refresh_markers()
+
+    def _refresh_markers(self) -> None:
+        dur = self._beat_duration_sec or 0.0
+        fractions = [p.position_sec / dur for p in self._placements] if dur else []
+        self.waveform.set_markers(fractions)
+        self.tag_panel.set_placement_count(len(self._placements))
+
+    def _on_autoplace(self) -> None:
+        if self._beat_duration_sec <= 0:
+            self.statusBar().showMessage("Analyze the beat first (no duration yet).", 3000)
+            return
+        tags = self.tag_panel.all_tag_paths()
+        if not tags:
+            self.statusBar().showMessage("No tags in the tag library.", 3000)
+            return
+        self._placements = core_placement.compute_placements(
+            duration_sec=self._beat_duration_sec, tag_paths=tags, interval_sec=40.0,
+        )
+        self._refresh_markers()
+
+    def _on_clear_tags(self) -> None:
+        self._placements = []
+        self._refresh_markers()
+
+    def _on_export(self) -> None:
+        if not self._current_path or not self._placements:
+            self.statusBar().showMessage("Place at least one tag before exporting.", 3000)
+            return
+        bid = self._selected_beat_id()
+        row = self.db.get_beat(bid) if bid is not None else None
+        if row is None:
+            return
+
+        out_dir = Path(self.db.path).resolve().parent / "output" \
+            if self.db.path != ":memory:" else Path.cwd() / "output"
+        out_dir.mkdir(parents=True, exist_ok=True)
+        from core.naming import build_output_stem
+        out_stem = build_output_stem(Path(row["filename"]).stem, row["bpm"], row["key"])
+        out_path = out_dir / f"{out_stem}.mp3"
+
+        self.statusBar().showMessage("Exporting…")
+        try:
+            pipeline.export_with_placements(
+                self._current_path, self._placements, str(out_path), TaggingConfig()
+            )
+        except Exception as exc:  # noqa: BLE001
+            QMessageBox.warning(self, "Export failed", str(exc))
+            self.statusBar().showMessage("Export failed", 3000)
+            return
+        self.statusBar().showMessage(f"Exported → {out_path.name}", 5000)
 
     def _on_save(self, beat_id: int, fields: dict, tag_names: list) -> None:
         self.db.update_beat(beat_id, **fields)

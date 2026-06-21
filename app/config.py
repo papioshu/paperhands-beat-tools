@@ -7,6 +7,7 @@ from typing import List
 ORG = "PaperhandBeatTools"
 APP = "BeatTools"
 _KEY = "watched_folders"
+_TAGS_KEY = "tags_folder"
 
 
 def _settings():
@@ -38,3 +39,12 @@ def add_watched_folder(folder: str) -> None:
 
 def remove_watched_folder(folder: str) -> None:
     set_watched_folders([f for f in watched_folders() if f != folder])
+
+
+def tags_folder(default: str = "tags") -> str:
+    """Folder the tag library reads producer tags from (defaults to ./tags)."""
+    return str(_settings().value(_TAGS_KEY, default) or default)
+
+
+def set_tags_folder(folder: str) -> None:
+    _settings().setValue(_TAGS_KEY, folder)

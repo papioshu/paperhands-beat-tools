@@ -68,3 +68,34 @@ def test_worker_analyzes_real_file(tmp_path):
     peaks = waveform.load_peaks(res["waveform_path"])
     assert len(peaks) > 0
     assert peaks.max() <= 1.0 + 1e-6
+
+
+def test_export_with_placements_real_audio(tmp_path):
+    import subprocess
+
+    from core.models import Placement, TaggingConfig
+    from core import pipeline
+
+    beat = tmp_path / "beat.mp3"
+    tag = tmp_path / "tag.wav"
+    _make_beat(beat, seconds=8)
+    subprocess.run(
+        ["ffmpeg", "-y", "-f", "lavfi", "-i", "sine=frequency=880:duration=1",
+         "-ac", "2", "-ar", "44100", str(tag)],
+        check=True, capture_output=True,
+    )
+
+    out = tmp_path / "beat_tagged.mp3"
+    placements = [Placement(0.0, str(tag)), Placement(4.0, str(tag))]
+    result = pipeline.export_with_placements(
+        str(beat), placements, str(out), TaggingConfig()
+    )
+    assert Path(result).exists()
+
+    # Output duration should match the source (~8s).
+    probe = subprocess.run(
+        ["ffprobe", "-v", "error", "-show_entries", "format=duration",
+         "-of", "default=nw=1:nk=1", str(out)],
+        check=True, capture_output=True, text=True,
+    )
+    assert float(probe.stdout.strip()) == pytest.approx(8.0, abs=0.3)

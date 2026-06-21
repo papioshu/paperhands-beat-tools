@@ -104,3 +104,31 @@ def process_file(
 
     result.output_name = out_path.name
     return result
+
+
+def export_with_placements(
+    input_path: str,
+    placements: Sequence,
+    out_path: str,
+    config: TaggingConfig,
+    tag_cache: Optional[Dict[str, object]] = None,
+) -> str:
+    """Mix an explicit list of placements onto a beat and export it.
+
+    This is the GUI's export path: the user has placed tags by hand on the
+    waveform, so we skip auto-placement/detection and just duck+overlay+normalize
+    the given :class:`~core.models.Placement` list, then write ``out_path``.
+
+    Returns the path written.
+    """
+    beat = audio.load_audio(input_path)
+
+    tag_cache = tag_cache if tag_cache is not None else {}
+    for p in placements:
+        if p.tag_path not in tag_cache:
+            tag_cache[p.tag_path] = audio.load_audio(p.tag_path)
+
+    mixed = audio.apply_placements(beat, placements, tag_cache, config.duck_db)
+    mixed = audio.normalize_safe(mixed, config.headroom_db)
+    audio.export_mp3(mixed, out_path, config.bitrate)
+    return out_path
