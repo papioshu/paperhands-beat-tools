@@ -29,6 +29,7 @@ from PySide6.QtWidgets import (
     QMainWindow,
     QMessageBox,
     QPushButton,
+    QScrollArea,
     QSlider,
     QSplitter,
     QTableWidget,
@@ -199,7 +200,15 @@ class MainWindow(QMainWindow):
         right.addWidget(self.tag_panel)
         right.setStretchFactor(0, 3)
         right.setStretchFactor(1, 2)
-        self.split.addWidget(right)
+
+        # Scroll the (tall) right pane so it can shrink — otherwise its large
+        # minimum height overflows the window and clips the player bar / log.
+        right_scroll = QScrollArea()
+        right_scroll.setWidgetResizable(True)
+        right_scroll.setFrameShape(QFrame.NoFrame)
+        right_scroll.setMinimumWidth(360)
+        right_scroll.setWidget(right)
+        self.split.addWidget(right_scroll)
 
         self.split.setStretchFactor(0, 3)
         self.split.setStretchFactor(1, 2)
@@ -394,8 +403,25 @@ class MainWindow(QMainWindow):
             )
 
     def _refresh_row_or_table(self, beat_id: int) -> None:
-        # Simple + correct: rebuild the table (selection preserved by id).
-        self.refresh_library(self.search.text())
+        # Update only the affected row in place — rebuilding the whole table on
+        # every per-file analysis completion is the main source of slowness.
+        row = self.db.get_beat(beat_id)
+        if row is not None:
+            missing = importer.is_missing(row)
+            status = "missing" if missing else (row["analysis_status"] or "")
+            values = [
+                row["title"] or row["filename"],
+                "" if row["bpm"] is None else f"{row['bpm']:g}",
+                row["key"] or "", row["genre"] or "", row["mood"] or "", status,
+            ]
+            for r in range(self.table.rowCount()):
+                head = self.table.item(r, 0)
+                if head and head.data(Qt.UserRole) == beat_id:
+                    for col, val in enumerate(values):
+                        cell = self.table.item(r, col)
+                        if cell is not None:
+                            cell.setText(str(val))
+                    break
         if beat_id == self._selected_beat_id():
             self._on_selection()  # refresh detail panel's analysis line
 

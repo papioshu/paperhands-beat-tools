@@ -31,6 +31,18 @@ class AnalysisRunnable(QRunnable):
 
             seg = audio.load_audio(self.file_path)
             samples, sr = audio.to_mono_float(seg)
+            duration_sec = len(seg) / 1000.0
+
+            # Downsample for feature extraction: CQT/STFT cost scales with sample
+            # count, so halving the rate roughly halves analysis time. Results are
+            # in seconds/pitch classes, so accuracy impact is negligible.
+            try:
+                import librosa
+                if sr > 22050:
+                    samples = librosa.resample(samples, orig_sr=sr, target_sr=22050)
+                    sr = 22050
+            except Exception:  # noqa: BLE001 - fall back to full-rate analysis
+                pass
 
             det = detection.detect_bpm_key(samples, sr)
             saved = waveform.generate_peaks_file(samples, self.peaks_path)
@@ -52,7 +64,7 @@ class AnalysisRunnable(QRunnable):
             result = {
                 "bpm": det.bpm,
                 "key": det.key,
-                "duration_sec": len(seg) / 1000.0,
+                "duration_sec": duration_sec,
                 "waveform_path": saved,
                 "analysis_status": "error" if det.error else "done",
                 "bpm_confidence": det.bpm_confidence,
