@@ -35,6 +35,7 @@ class WaveformWidget(QWidget):
         self._peaks = None
         self._position = 0.0
         self._markers: List[float] = []
+        self._sections: List[float] = []     # structure boundaries (fractions)
         self._crop: Optional[Tuple[float, float]] = None
         self._mode = "seek"
 
@@ -63,6 +64,7 @@ class WaveformWidget(QWidget):
         self._peaks = None
         self._position = 0.0
         self._markers = []
+        self._sections = []
         self._crop = None
         self._reset_drag()
         self.update()
@@ -73,6 +75,10 @@ class WaveformWidget(QWidget):
 
     def set_markers(self, fractions: List[float]) -> None:
         self._markers = [max(0.0, min(1.0, f)) for f in fractions]
+        self.update()
+
+    def set_sections(self, fractions: List[float]) -> None:
+        self._sections = [max(0.0, min(1.0, f)) for f in fractions]
         self.update()
 
     def clear_crop(self) -> None:
@@ -161,6 +167,7 @@ class WaveformWidget(QWidget):
         p.fillRect(self.rect(), QColor(COLORS["panel"]))
 
         self._paint_crop(p, w, h)
+        self._paint_sections(p, w, h)
 
         if self._peaks is None or len(self._peaks) == 0:
             p.setPen(QPen(QColor(COLORS["border"]), 1))
@@ -195,6 +202,15 @@ class WaveformWidget(QWidget):
         p.setPen(QPen(QColor(COLORS["violet"]), 1))
         p.drawLine(x0, 0, x0, h)
         p.drawLine(x1, 0, x1, h)
+
+    def _paint_sections(self, p: QPainter, w: int, h: int) -> None:
+        if not self._sections:
+            return
+        pen = QPen(QColor(COLORS["text_faint"]), 1, Qt.DashLine)
+        p.setPen(pen)
+        for frac in self._sections:
+            x = int(frac * w)
+            p.drawLine(x, 0, x, h)
 
     def _paint_markers(self, p: QPainter, w: int, h: int) -> None:
         p.setPen(QPen(QColor(COLORS["violet"]), 2))

@@ -419,6 +419,11 @@ class MainWindow(QMainWindow):
         else:
             self.waveform.clear()
 
+        # Structure section dividers (if analyzed)
+        dur = self._beat_duration_sec or 0.0
+        sections = self._load_json_list(row["structure"]) if dur else []
+        self.waveform.set_sections([t / dur for t in sections] if dur else [])
+
         # Audio source
         playable = (not missing) and self.player.available
         if not missing:
@@ -508,6 +513,16 @@ class MainWindow(QMainWindow):
         except (json.JSONDecodeError, TypeError):
             return []
         return [Placement(float(d["pos"]), d["tag"]) for d in data if "pos" in d and "tag" in d]
+
+    @staticmethod
+    def _load_json_list(raw) -> list:
+        if not raw:
+            return []
+        try:
+            data = json.loads(raw)
+            return data if isinstance(data, list) else []
+        except (json.JSONDecodeError, TypeError):
+            return []
 
     def _save_placements(self) -> None:
         if self._current_beat_id is None:

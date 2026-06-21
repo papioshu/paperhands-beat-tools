@@ -26,7 +26,7 @@ class AnalysisRunnable(QRunnable):
         try:
             import json
 
-            from core import audio, detection, fingerprint, waveform
+            from core import audio, detection, fingerprint, structure, waveform
 
             seg = audio.load_audio(self.file_path)
             samples, sr = audio.to_mono_float(seg)
@@ -37,6 +37,10 @@ class AnalysisRunnable(QRunnable):
                 fp = fingerprint.compute_fingerprint(samples, sr)
             except Exception:  # noqa: BLE001 - fingerprint is best-effort
                 fp = ""
+            try:
+                sections = structure.detect_structure(samples, sr)
+            except Exception:  # noqa: BLE001 - structure is best-effort
+                sections = []
 
             result = {
                 "bpm": det.bpm,
@@ -49,6 +53,7 @@ class AnalysisRunnable(QRunnable):
                 "bpm_candidates": json.dumps(list(det.bpm_candidates)),
                 "key_candidates": json.dumps(list(det.key_candidates)),
                 "fingerprint": fp,
+                "structure": json.dumps(sections),
             }
             self.signals.beat_analyzed.emit(self.beat_id, result)
         except Exception as exc:  # noqa: BLE001 - report, never crash the pool
