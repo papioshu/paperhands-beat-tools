@@ -1,11 +1,23 @@
-# Paperhand's Beat Tools — Batch Producer-Tag Stamper
+# Paperhand's Beat Tools
+
+A producer beat toolkit with two front-ends over one shared audio engine
+(`core/`):
+
+1. **Batch tagger CLI** (`tag_beats.py`) — stamp your tag across a whole folder
+   automatically. Documented below.
+2. **Desktop app** (`python -m app.main`) — catalog/auto-analyze/tag a library
+   and place tags by hand on a waveform. See **[Desktop app](#desktop-app-gui)**.
+
+> This is a **beat-preview** tool. It only overlays *your existing tag audio*
+> onto instrumentals — it never generates vocals or changes the music.
+
+---
+
+## Batch tagger CLI
 
 Stamp your producer tag across every MP3 in a folder, with one command (or one
 double-click). Tagged copies go to a separate folder; **your originals are never
 touched**. A CSV report records what happened to each file.
-
-> This is a **beat-preview** tool. It only overlays *your existing tag audio*
-> onto instrumentals — it never generates vocals or changes the music.
 
 ---
 
@@ -148,9 +160,42 @@ near-transparent. For archival masters, tag from lossless sources instead.
 
 ---
 
+## Desktop app (GUI)
+
+A PySide6 app for managing and hand-tagging a beat library. Same setup as the
+CLI (Python + ffmpeg + `requirements.txt`), plus PySide6:
+
+```powershell
+python -m pip install -r requirements.txt PySide6
+python -m app.main
+```
+
+What it does:
+
+- **Catalog in place** — *Import Beats* (files) or *Scan Folder*; add persistent
+  watched folders under *Settings* and *Scan now*. Files are never moved.
+- **Auto-analysis** — BPM and key are detected in the background on import, and a
+  waveform is cached for instant display.
+- **Tag & organize** — edit title, genre, sub-genre, mood, free-form tags, and
+  notes (with autocomplete); search/filter the whole library.
+- **Audition** — seekable waveform player; click the waveform to seek.
+- **Rename in place** — rename the actual file from a pattern
+  (e.g. `{title} [{bpm} {key}]`), collision-safe.
+- **Relocate** — moved a file? A *missing* row gets a *Relocate* button.
+- **Hand-place tags** — pick a tag from the *Tag library*, toggle *Place on
+  click*, and click anywhere on the waveform to drop it (click a marker again to
+  remove it). *Auto-place* lays down default interval tags to tweak. *Export
+  Tagged* renders the beat through the same engine the CLI uses, into `./output`.
+
+The look is a violet / lime / gunmetal-grey theme; see `docs/screenshots/`.
+
+---
+
 ## Running the tests
 
-The pure-logic tests (naming + placement) need no ffmpeg or audio libraries:
+The pure-logic tests (naming, placement, DB, waveform) need no ffmpeg or audio
+libraries; GUI tests need PySide6; the audio integration tests need ffmpeg +
+librosa (they skip cleanly otherwise):
 
 ```powershell
 python -m pip install pytest
