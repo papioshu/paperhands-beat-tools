@@ -1,0 +1,13 @@
+{
+  "enabledPlugins": {
+    "code-review@claude-plugins-official": true,
+    "context7@claude-plugins-official": true,
+    "feature-dev@claude-plugins-official": true,
+    "typescript-lsp@claude-plugins-official": true,
+    "claude-code-setup@claude-plugins-official": true,
+    "aikido@claude-plugins-official": true,
+    "playground@claude-plugins-official": true,
+    "superpowers@superpowers-marketplace": true,
+    "double-shot-latte@superpowers-marketplace": true
+  }
+}

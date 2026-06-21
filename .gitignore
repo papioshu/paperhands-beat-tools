@@ -1,0 +1,27 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+.pytest_cache/
+
+# Working audio folders — keep the folders, ignore their contents
+input/*
+tags/*
+output/*
+reports/*
+!input/.gitkeep
+!tags/.gitkeep
+!output/.gitkeep
+!reports/.gitkeep
+
+# OS
+Thumbs.db
+.DS_Store
+
+# Claude Code — keep shared settings.json, ignore local overrides
+.claude/settings.local.json
+
+# Built library database
+library.db
