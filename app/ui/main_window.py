@@ -101,6 +101,10 @@ class MainWindow(QMainWindow):
         self._current_beat_id = None
         self._drop_sec = None
         self._hook_start = None
+        # Live tag audition during playback
+        self._fired_tags: set = set()
+        self._last_pos_sec = 0.0
+        self._live_duck_db = TaggingConfig().duck_db
 
         self._build_toolbar()
         self._build_body()
@@ -181,6 +185,7 @@ class MainWindow(QMainWindow):
 
         self.tag_panel = TagLibraryPanel()
         self.tag_panel.active_tag_changed.connect(self._on_active_tag)
+        self.tag_panel.preview_tag_requested.connect(self._preview_active_tag)
         self.tag_panel.place_mode_changed.connect(self._on_place_mode)
         self.tag_panel.crop_mode_changed.connect(self._on_crop_mode)
         self.tag_panel.autoplace_requested.connect(self._on_autoplace)
@@ -263,6 +268,7 @@ class MainWindow(QMainWindow):
         self.player.playing_changed.connect(
             lambda playing: self.btn_play.setText("Pause" if playing else "Play")
         )
+        self.player.tag_finished.connect(self.player.unduck)
         self.seek.sliderMoved.connect(self.player.set_position)
         self.waveform.seek_requested.connect(self._seek_fraction)
         self.waveform.tag_placed.connect(self._place_tag_at_fraction)
@@ -499,6 +505,9 @@ class MainWindow(QMainWindow):
         self._current_beat_id = row["id"]
         self._beat_duration_sec = row["duration_sec"] or 0.0
         self._placements = self._load_placements(row)
+        self._fired_tags = set()
+        self._last_pos_sec = 0.0
+        self.player.unduck()
         self._refresh_markers()
 
         # Waveform peaks (if analyzed)
@@ -547,6 +556,23 @@ class MainWindow(QMainWindow):
         frac = (ms / self._duration_ms) if self._duration_ms else 0.0
         self.waveform.set_position(frac)
         self._update_time(ms)
+        self._monitor_live_tags(ms / 1000.0)
+
+    def _monitor_live_tags(self, pos_sec: float) -> None:
+        """Fire each placed tag (ducking the beat) as the playhead reaches it."""
+        delta = pos_sec - self._last_pos_sec
+        # Seek / loop / big jump: re-sync without firing past tags.
+        if delta < -0.2 or delta > 1.0:
+            self._fired_tags = {i for i, p in enumerate(self._placements)
+                               if p.position_sec <= pos_sec}
+            self._last_pos_sec = pos_sec
+            return
+        for i, p in enumerate(self._placements):
+            if i not in self._fired_tags and self._last_pos_sec < p.position_sec <= pos_sec:
+                self._fired_tags.add(i)
+                self.player.duck(self._live_duck_db)
+                self.player.play_tag(p.tag_path)
+        self._last_pos_sec = pos_sec
 
     def _seek_fraction(self, fraction: float) -> None:
         if self._duration_ms:
@@ -564,6 +590,12 @@ class MainWindow(QMainWindow):
 
     def _on_active_tag(self, path: str) -> None:
         self._active_tag = path or None
+
+    def _preview_active_tag(self) -> None:
+        if self._active_tag:
+            self.player.play_tag(self._active_tag)
+        else:
+            self.statusBar().showMessage("Select a tag to preview.", 2000)
 
     def _on_place_mode(self, on: bool) -> None:
         self.waveform.set_mode("place" if on else "seek")
@@ -589,6 +621,7 @@ class MainWindow(QMainWindow):
         self._placements.append(Placement(pos, self._active_tag))
         self._placements.sort(key=lambda p: p.position_sec)
         self._refresh_markers(save=True)
+        self.player.play_tag(self._active_tag)   # instant audition on placement
 
     def _remove_marker(self, index: int) -> None:
         if 0 <= index < len(self._placements):

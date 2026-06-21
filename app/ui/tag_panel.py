@@ -29,6 +29,7 @@ from app.services.importer import AUDIO_EXTS
 
 class TagLibraryPanel(QFrame):
     active_tag_changed = Signal(str)     # path ("" if none)
+    preview_tag_requested = Signal()     # audition the selected tag
     place_mode_changed = Signal(bool)
     crop_mode_changed = Signal(bool)
     autoplace_requested = Signal()
@@ -62,6 +63,12 @@ class TagLibraryPanel(QFrame):
         self.list = QListWidget()
         self.list.setMaximumHeight(140)
         layout.addWidget(self.list)
+
+        self.btn_preview = QPushButton("▶ Preview tag")
+        layout.addWidget(self.btn_preview)
+        self.btn_preview.clicked.connect(self.preview_tag_requested)
+        # Double-clicking a tag also auditions it.
+        self.list.itemDoubleClicked.connect(lambda _it: self.preview_tag_requested.emit())
 
         mode_row = QHBoxLayout()
         self.btn_place = QPushButton("Place on click")

@@ -125,6 +125,39 @@ def test_paints_with_peaks_markers_crop_position():
     assert w.grab().width() > 0
 
 
+def test_zoom_mapping_global_and_screen():
+    w = _widget()                      # 200px wide
+    w._zoom = 2.0
+    w._view_start = 0.25               # visible window = [0.25, 0.75]
+    assert w._global_at(0) == pytest.approx(0.25)
+    assert w._global_at(200) == pytest.approx(0.75)
+    assert w._global_at(100) == pytest.approx(0.50)
+    assert w._screen_x(0.25) == pytest.approx(0)
+    assert w._screen_x(0.75) == pytest.approx(200)
+
+
+def test_marker_hit_uses_zoomed_position():
+    w = _widget()                      # 200px
+    w.set_markers([0.5])               # global 0.5
+    w._zoom = 2.0
+    w._view_start = 0.25               # 0.5 -> screen x = (0.5-0.25)/0.5*200 = 100
+    assert w._marker_index_at(100) == 0
+    assert w._marker_index_at(0) is None
+
+
+def test_wheel_zooms_in_and_clamps():
+    from PySide6.QtCore import QPoint, QPointF, Qt
+    from PySide6.QtGui import QWheelEvent
+
+    w = _widget()
+    ev = QWheelEvent(QPointF(100, 10), QPointF(100, 10), QPoint(0, 0),
+                     QPoint(0, 120), Qt.NoButton, Qt.NoModifier,
+                     Qt.ScrollPhase.NoScrollPhase, False)
+    w.wheelEvent(ev)
+    assert w._zoom > 1.0
+    assert 0.0 <= w._view_start <= 1.0 - w._window() + 1e-9
+
+
 def test_clear_resets_state():
     w = _widget()
     w.set_peaks(np.ones(10, dtype="float32"))
