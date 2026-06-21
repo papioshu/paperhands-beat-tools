@@ -115,7 +115,15 @@ def test_selecting_another_beat_resets_placements(tmp_path):
     win._on_waveform_click(0.2)
     assert win._placements
 
-    win.table.selectRow(1)  # switch beats
+    # Switch to a row whose beat id differs from the current selection
+    # (row order can tie on date_added, so target by id, not index).
+    from PySide6.QtCore import Qt
+    current = win._selected_beat_id()
+    other_row = next(
+        r for r in range(win.table.rowCount())
+        if win.table.item(r, 0).data(Qt.UserRole) != current
+    )
+    win.table.selectRow(other_row)
     _app().processEvents()
     assert win._placements == []  # reset for the new beat
     win.close()
