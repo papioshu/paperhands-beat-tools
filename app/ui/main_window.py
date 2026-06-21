@@ -11,9 +11,10 @@
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Optional
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, QThreadPool
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QFileDialog,
@@ -39,6 +40,7 @@ from app.db import Database
 from app.services import importer, renamer
 from app.ui.detail_panel import DetailPanel
 from app.ui.settings_dialog import SettingsDialog
+from app.workers import AnalysisRunnable, WorkerSignals
 
 _COLUMNS = ["Title", "BPM", "Key", "Genre", "Mood", "Status"]
 
@@ -50,12 +52,22 @@ class MainWindow(QMainWindow):
         self.setWindowTitle("Paperhand's Beat Tools")
         self.resize(1180, 720)
 
+        # Background analysis
+        self.pool = QThreadPool.globalInstance()
+        self.signals = WorkerSignals()
+        self.signals.beat_analyzed.connect(self._on_analyzed)
+        self.signals.error.connect(self._on_analysis_error)
+        self.signals.progress.connect(self._on_progress)
+        self._analysis_total = 0
+        self._analysis_done = 0
+
         self._build_toolbar()
         self._build_body()
         self._build_player_bar()
         self.statusBar().showMessage("Ready")
 
         self.refresh_library()
+        self.analyze_pending()
 
     # -- construction ------------------------------------------------------
 
@@ -188,6 +200,58 @@ class MainWindow(QMainWindow):
         else:
             self.detail.clear()
 
+    # -- background analysis ----------------------------------------------
+
+    def _peaks_dir(self) -> Path:
+        base = Path(self.db.path).resolve().parent if self.db.path != ":memory:" else Path.cwd()
+        d = base / ".peaks"
+        d.mkdir(parents=True, exist_ok=True)
+        return d
+
+    def analyze_pending(self) -> None:
+        """Queue background analysis for every un-analyzed, present beat."""
+        pending = [
+            b for b in self.db.list_beats()
+            if (b["analysis_status"] in (None, "", "pending")) and not importer.is_missing(b)
+        ]
+        if not pending:
+            return
+        peaks_dir = self._peaks_dir()
+        self._analysis_total += len(pending)
+        for b in pending:
+            task = AnalysisRunnable(
+                b["id"], b["file_path"], str(peaks_dir / f"{b['id']}.npy"), self.signals
+            )
+            self.pool.start(task)
+        self._update_progress_message()
+
+    def _on_analyzed(self, beat_id: int, result: dict) -> None:
+        self.db.update_beat(beat_id, **result)
+        self._refresh_row_or_table(beat_id)
+
+    def _on_analysis_error(self, beat_id: int, message: str) -> None:
+        self.db.update_beat(beat_id, analysis_status="error")
+        self._refresh_row_or_table(beat_id)
+
+    def _on_progress(self) -> None:
+        self._analysis_done += 1
+        self._update_progress_message()
+        if self._analysis_done >= self._analysis_total:
+            self._analysis_total = self._analysis_done = 0
+            self.statusBar().showMessage("Analysis complete", 3000)
+
+    def _update_progress_message(self) -> None:
+        if self._analysis_total:
+            self.statusBar().showMessage(
+                f"Analyzing {self._analysis_done}/{self._analysis_total}…"
+            )
+
+    def _refresh_row_or_table(self, beat_id: int) -> None:
+        # Simple + correct: rebuild the table (selection preserved by id).
+        self.refresh_library(self.search.text())
+        if beat_id == self._selected_beat_id():
+            self._on_selection()  # refresh detail panel's analysis line
+
     # -- selection / editing ----------------------------------------------
 
     def _selected_beat_id(self) -> Optional[int]:
@@ -270,6 +334,7 @@ class MainWindow(QMainWindow):
         added = importer.import_paths(self.db, paths)
         self.refresh_library(self.search.text())
         self.statusBar().showMessage(f"Imported {added} new beat(s)", 3000)
+        self.analyze_pending()
 
     def _scan_folder(self) -> None:
         folder = QFileDialog.getExistingDirectory(self, "Scan a folder for beats")
@@ -278,12 +343,14 @@ class MainWindow(QMainWindow):
         added = importer.scan_folder(self.db, folder)
         self.refresh_library(self.search.text())
         self.statusBar().showMessage(f"Scanned: {added} new beat(s)", 3000)
+        self.analyze_pending()
 
     def _open_settings(self) -> None:
         dlg = SettingsDialog(self.db, self)
         dlg.exec()
         if dlg.added_count:
             self.refresh_library(self.search.text())
+            self.analyze_pending()
 
     def closeEvent(self, event):  # noqa: N802 - Qt override
         self.db.close()
