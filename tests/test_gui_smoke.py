@@ -87,6 +87,44 @@ def test_edit_via_detail_panel_persists(tmp_path):
     win.close()
 
 
+def test_detail_panel_shows_candidates_and_override_saves(tmp_path):
+    beat = tmp_path / "Night.mp3"
+    beat.write_bytes(b"\x00\x00")
+    db_path = tmp_path / "lib.db"
+    seed = Database(str(db_path))
+    bid = seed.add_beat(str(beat), "Night.mp3")
+    seed.update_beat(
+        bid, bpm=140, key="F#min", analysis_status="done", duration_sec=120.0,
+        bpm_confidence=0.9, key_confidence=0.6,
+        bpm_candidates="[140, 70]", key_candidates='["F#min", "Amaj", "Dmin"]',
+    )
+    seed.close()
+
+    app = _app()
+    win = MainWindow(db_path=str(db_path))
+    app.processEvents()
+    win.table.selectRow(0)
+    app.processEvents()
+
+    # Detected value pre-filled; candidates available; confidence shown.
+    assert win.detail.bpm.currentText() == "140"
+    bpm_items = [win.detail.bpm.itemText(i) for i in range(win.detail.bpm.count())]
+    assert "70" in bpm_items
+    key_items = [win.detail.key.itemText(i) for i in range(win.detail.key.count())]
+    assert {"F#min", "Amaj", "Dmin"} <= set(key_items)
+    assert "%" in win.detail.confidence.text()
+
+    # Override BPM to the half-time candidate and save -> persisted.
+    win.detail.bpm.setCurrentText("70")
+    win.detail.key.setCurrentText("Amaj")
+    win.detail._emit_save()
+    app.processEvents()
+    row = win.db.get_beat(bid)
+    assert row["bpm"] == 70.0
+    assert row["key"] == "Amaj"
+    win.close()
+
+
 def test_selecting_analyzed_beat_loads_waveform(tmp_path):
     import numpy as np
     from core import waveform as wf

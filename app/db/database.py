@@ -21,12 +21,17 @@ _EDITABLE = {
     "title", "bpm", "key", "genre", "subgenre", "mood", "notes",
     "duration_sec", "file_size", "waveform_path", "analysis_status",
     "file_path", "filename", "placements",
+    "bpm_confidence", "key_confidence", "bpm_candidates", "key_candidates",
 }
 
 # Columns added after the original schema shipped; applied as additive migrations
 # so existing library.db files upgrade in place without losing data.
 _MIGRATIONS = {
     "placements": "ALTER TABLE beats ADD COLUMN placements TEXT",
+    "bpm_confidence": "ALTER TABLE beats ADD COLUMN bpm_confidence REAL",
+    "key_confidence": "ALTER TABLE beats ADD COLUMN key_confidence REAL",
+    "bpm_candidates": "ALTER TABLE beats ADD COLUMN bpm_candidates TEXT",
+    "key_candidates": "ALTER TABLE beats ADD COLUMN key_candidates TEXT",
 }
 
 _SCHEMA = """

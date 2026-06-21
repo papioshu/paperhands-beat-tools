@@ -65,9 +65,18 @@ class DetailPanel(QFrame):
         self.missing_banner.hide()
         outer.addWidget(self.missing_banner)
 
+        self.confidence = QLabel("")
+        self.confidence.setObjectName("SubHeading")
+        self.confidence.setWordWrap(True)
+        outer.addWidget(self.confidence)
+
         form = QFormLayout()
         form.setLabelAlignment(Qt.AlignRight)
         self.title = QLineEdit()
+        self.bpm = QComboBox()        # editable: detected value + candidates
+        self.bpm.setEditable(True)
+        self.key = QComboBox()
+        self.key.setEditable(True)
         self.genre = _editable_combo([])
         self.subgenre = _editable_combo([])
         self.mood = _editable_combo([])
@@ -76,6 +85,8 @@ class DetailPanel(QFrame):
         self.notes = QPlainTextEdit()
         self.notes.setFixedHeight(90)
         form.addRow("Title", self.title)
+        form.addRow("BPM", self.bpm)
+        form.addRow("Key", self.key)
         form.addRow("Genre", self.genre)
         form.addRow("Sub-genre", self.subgenre)
         form.addRow("Mood", self.mood)
@@ -125,13 +136,15 @@ class DetailPanel(QFrame):
 
     def load_beat(self, row, tag_names: List[str], missing: bool = False) -> None:
         self._beat_id = row["id"]
-        bpm = "" if row["bpm"] is None else f"{row['bpm']:g} BPM"
-        key = row["key"] or ""
-        sep = " · " if bpm and key else ""
-        self.analysis.setText(
-            f"{row['filename']}\n{bpm}{sep}{key}   ({row['analysis_status'] or '—'})"
-        )
+        self.analysis.setText(f"{row['filename']}   ({row['analysis_status'] or '—'})")
+
         self.title.setText(row["title"] or "")
+        bpm_current = "" if row["bpm"] is None else f"{row['bpm']:g}"
+        self._fill_combo(self.bpm, bpm_current,
+                         [f"{c:g}" for c in _parse_list(row["bpm_candidates"])])
+        self._fill_combo(self.key, row["key"] or "", _parse_list(row["key_candidates"]))
+        self._show_confidence(row["bpm_confidence"], row["key_confidence"])
+
         self.genre.setCurrentText(row["genre"] or "")
         self.subgenre.setCurrentText(row["subgenre"] or "")
         self.mood.setCurrentText(row["mood"] or "")
@@ -146,9 +159,10 @@ class DetailPanel(QFrame):
     def clear(self) -> None:
         self._beat_id = None
         self.analysis.setText("Select a beat to edit.")
+        self.confidence.setText("")
         for w in (self.title, self.tags):
             w.clear()
-        for c in (self.genre, self.subgenre, self.mood):
+        for c in (self.bpm, self.key, self.genre, self.subgenre, self.mood):
             c.setCurrentText("")
         self.notes.clear()
         self.missing_banner.hide()
@@ -156,17 +170,41 @@ class DetailPanel(QFrame):
         self.set_enabled(False)
 
     def set_enabled(self, on: bool) -> None:
-        for w in (self.title, self.genre, self.subgenre, self.mood, self.tags,
-                  self.notes, self.btn_save, self.btn_rename):
+        for w in (self.title, self.bpm, self.key, self.genre, self.subgenre,
+                  self.mood, self.tags, self.notes, self.btn_save, self.btn_rename):
             w.setEnabled(on)
 
     # -- internals ---------------------------------------------------------
+
+    @staticmethod
+    def _fill_combo(combo, current: str, candidates) -> None:
+        combo.blockSignals(True)
+        combo.clear()
+        items = []
+        for c in [current, *candidates]:
+            s = str(c)
+            if s and s not in items:
+                items.append(s)
+        combo.addItems(items)
+        combo.setCurrentText(str(current))
+        combo.blockSignals(False)
+
+    def _show_confidence(self, bpm_conf, key_conf) -> None:
+        parts = []
+        if bpm_conf is not None:
+            parts.append(f"BPM {int(round(bpm_conf * 100))}%")
+        if key_conf is not None:
+            parts.append(f"Key {int(round(key_conf * 100))}%")
+        self.confidence.setText(
+            ("Detection confidence — " + " · ".join(parts)) if parts else "")
 
     def _emit_save(self) -> None:
         if self._beat_id is None:
             return
         fields = {
             "title": self.title.text().strip(),
+            "bpm": _parse_bpm(self.bpm.currentText()),
+            "key": self.key.currentText().strip() or None,
             "genre": self.genre.currentText().strip(),
             "subgenre": self.subgenre.currentText().strip(),
             "mood": self.mood.currentText().strip(),
@@ -174,3 +212,24 @@ class DetailPanel(QFrame):
         }
         tag_names = [t.strip() for t in self.tags.text().split(",") if t.strip()]
         self.saved.emit(self._beat_id, fields, tag_names)
+
+
+def _parse_list(raw):
+    """Parse a JSON list stored in the DB; tolerate empty/garbage."""
+    if not raw:
+        return []
+    try:
+        import json
+
+        data = json.loads(raw)
+        return data if isinstance(data, list) else []
+    except (ValueError, TypeError):
+        return []
+
+
+def _parse_bpm(text: str):
+    text = text.strip()
+    try:
+        return float(text) if text else None
+    except ValueError:
+        return None

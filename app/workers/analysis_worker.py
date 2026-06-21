@@ -24,6 +24,8 @@ class AnalysisRunnable(QRunnable):
     @Slot()
     def run(self) -> None:
         try:
+            import json
+
             from core import audio, detection, waveform
 
             seg = audio.load_audio(self.file_path)
@@ -38,6 +40,10 @@ class AnalysisRunnable(QRunnable):
                 "duration_sec": len(seg) / 1000.0,
                 "waveform_path": saved,
                 "analysis_status": "error" if det.error else "done",
+                "bpm_confidence": det.bpm_confidence,
+                "key_confidence": det.key_confidence,
+                "bpm_candidates": json.dumps(list(det.bpm_candidates)),
+                "key_candidates": json.dumps(list(det.key_candidates)),
             }
             self.signals.beat_analyzed.emit(self.beat_id, result)
         except Exception as exc:  # noqa: BLE001 - report, never crash the pool

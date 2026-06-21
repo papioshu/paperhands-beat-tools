@@ -30,11 +30,19 @@ class DetectionResult:
     Either field may be ``None`` when detection was skipped (already in the
     filename / manually overridden) or failed. ``error`` carries a short reason
     when analysis blew up, so the pipeline can keep going and still report it.
+
+    The ``*_candidates`` lists offer alternates for a confirm/override UI (e.g.
+    half/double tempo, relative major/minor); ``*_confidence`` is a rough 0..1
+    score — honestly approximate, meant to flag "double-check this", not gospel.
     """
 
     bpm: Optional[float] = None
     key: Optional[str] = None
     error: Optional[str] = None
+    bpm_candidates: tuple = ()
+    key_candidates: tuple = ()
+    bpm_confidence: Optional[float] = None
+    key_confidence: Optional[float] = None
 
 
 @dataclass

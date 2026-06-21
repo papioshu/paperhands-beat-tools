@@ -40,39 +40,72 @@ def detect_bpm_key(samples, sr: int) -> DetectionResult:
         return DetectionResult(error=f"missing dependency: {exc.name}")
 
     try:
-        bpm = _detect_bpm(librosa, np, samples, sr)
-        key = _detect_key(librosa, np, samples, sr)
-        return DetectionResult(bpm=bpm, key=key)
+        bpm, bpm_cands, bpm_conf = _detect_bpm(librosa, np, samples, sr)
+        key, key_cands, key_conf = _detect_key(librosa, np, samples, sr)
+        return DetectionResult(
+            bpm=bpm, key=key,
+            bpm_candidates=tuple(bpm_cands), key_candidates=tuple(key_cands),
+            bpm_confidence=bpm_conf, key_confidence=key_conf,
+        )
     except Exception as exc:  # noqa: BLE001 - detection is best-effort, never fatal
         return DetectionResult(error=str(exc))
 
 
-def _detect_bpm(librosa, np, samples, sr: int) -> Optional[float]:
-    tempo, _ = librosa.beat.beat_track(y=samples, sr=sr)
+def _detect_bpm(librosa, np, samples, sr: int):
+    """Return (primary_bpm, candidate_bpms, confidence).
+
+    Candidates include half/double tempo (the usual octave confusion). Confidence
+    comes from how regular the detected beat grid is (steady spacing -> confident).
+    """
+    tempo, beats = librosa.beat.beat_track(y=samples, sr=sr)
     tempo = float(np.atleast_1d(tempo)[0])
-    return round(tempo, 1) if tempo > 0 else None
+    if tempo <= 0:
+        return None, [], None
+    primary = round(tempo, 1)
+
+    candidates = []
+    for mult in (1.0, 0.5, 2.0):
+        c = round(tempo * mult, 1)
+        if 50.0 <= c <= 210.0 and c not in candidates:
+            candidates.append(c)
+
+    confidence = None
+    if len(beats) > 2:
+        diffs = np.diff(librosa.frames_to_time(beats, sr=sr))
+        if diffs.size and diffs.mean() > 0:
+            cv = float(np.std(diffs) / diffs.mean())   # coefficient of variation
+            confidence = round(max(0.0, min(1.0, 1.0 - cv * 4.0)), 2)
+    return primary, candidates, confidence
 
 
-def _detect_key(librosa, np, samples, sr: int) -> Optional[str]:
+def _detect_key(librosa, np, samples, sr: int):
+    """Return (primary_key, candidate_keys, confidence).
+
+    Correlates the average chroma against major/minor profiles for all 24 keys;
+    confidence is the margin between the best and second-best match.
+    """
     chroma = librosa.feature.chroma_cqt(y=samples, sr=sr)
-    profile = chroma.mean(axis=1)  # 12-vector, energy per pitch class
+    profile = chroma.mean(axis=1)
     if not np.any(profile):
-        return None
+        return None, [], None
 
     major = np.array(_MAJOR_PROFILE)
     minor = np.array(_MINOR_PROFILE)
 
-    best_score = -1.0
-    best_key = None
+    scored = []
     for tonic in range(12):
         rotated = np.roll(profile, -tonic)
-        maj_score = float(np.corrcoef(rotated, major)[0, 1])
-        min_score = float(np.corrcoef(rotated, minor)[0, 1])
-        if maj_score > best_score:
-            best_score, best_key = maj_score, f"{_NOTE_NAMES[tonic]}maj"
-        if min_score > best_score:
-            best_score, best_key = min_score, f"{_NOTE_NAMES[tonic]}min"
-    return best_key
+        scored.append((float(np.corrcoef(rotated, major)[0, 1]), f"{_NOTE_NAMES[tonic]}maj"))
+        scored.append((float(np.corrcoef(rotated, minor)[0, 1]), f"{_NOTE_NAMES[tonic]}min"))
+    scored.sort(key=lambda s: s[0], reverse=True)
+
+    primary = scored[0][1]
+    candidates = [name for _, name in scored[:3]]
+    confidence = None
+    if len(scored) > 1:
+        margin = scored[0][0] - scored[1][0]
+        confidence = round(max(0.0, min(1.0, margin * 3.0)), 2)
+    return primary, candidates, confidence
 
 
 def detect_first_drop(samples, sr: int) -> Optional[float]:
