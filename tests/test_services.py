@@ -121,3 +121,33 @@ def test_rename_missing_source_raises(db, tmp_path):
     bid = db.add_beat(str(tmp_path / "gone.mp3"), "gone.mp3")
     with pytest.raises(FileNotFoundError):
         renamer.rename_in_place(db, bid, "whatever")
+
+
+# --- batch rename planning --------------------------------------------------
+
+def test_plan_batch_rename_builds_new_names(db):
+    b1 = db.add_beat("/m/raw1.mp3", "raw1.mp3", title="Night")
+    db.update_beat(b1, bpm=140, key="F#min")
+    b2 = db.add_beat("/m/raw2.mp3", "raw2.mp3", title="Sunrise")
+    db.update_beat(b2, bpm=92, key="Cmaj")
+
+    rows = db.list_beats()
+    plans = renamer.plan_batch_rename(rows, "{title} [{bpm} {key}]")
+    by_id = {p["beat_id"]: p for p in plans}
+    assert by_id[b1]["new_name"] == "Night [140BPM Fsharpmin].mp3"
+    assert by_id[b2]["new_name"] == "Sunrise [92BPM Cmaj].mp3"
+    assert all(p["changed"] for p in plans)
+    assert not any(p["conflict"] for p in plans)
+
+
+def test_plan_batch_rename_flags_collisions(db):
+    db.add_beat("/m/a.mp3", "a.mp3", title="Same")
+    db.add_beat("/m/b.mp3", "b.mp3", title="Same")
+    plans = renamer.plan_batch_rename(db.list_beats(), "{title}")
+    assert all(p["conflict"] for p in plans)        # both -> "Same.mp3"
+
+
+def test_plan_batch_rename_marks_unchanged(db):
+    db.add_beat("/m/Keep.mp3", "Keep.mp3", title="Keep")
+    plans = renamer.plan_batch_rename(db.list_beats(), "{name}")
+    assert plans[0]["changed"] is False             # {name} -> same stem

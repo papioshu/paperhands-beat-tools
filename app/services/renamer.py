@@ -49,6 +49,40 @@ def build_basename(
     return text or original_stem
 
 
+def plan_batch_rename(rows, pattern: str) -> list:
+    """Compute new names for many beats from a pattern (no filesystem changes).
+
+    Returns one dict per row: ``beat_id, current, new_name, new_stem, changed,
+    conflict``. ``conflict`` flags when two beats in the batch would collapse to
+    the same name (so the UI can warn and skip them).
+    """
+    plans = []
+    for row in rows:
+        stem = Path(row["filename"]).stem
+        ext = Path(row["filename"]).suffix
+        new_stem = build_basename(
+            pattern,
+            title=row["title"] or stem,
+            original_stem=stem,
+            bpm=row["bpm"],
+            key=row["key"],
+        )
+        plans.append({
+            "beat_id": row["id"],
+            "current": row["filename"],
+            "new_stem": new_stem,
+            "new_name": new_stem + ext,
+        })
+
+    counts = {}
+    for p in plans:
+        counts[p["new_name"]] = counts.get(p["new_name"], 0) + 1
+    for p in plans:
+        p["changed"] = p["new_name"] != p["current"]
+        p["conflict"] = counts[p["new_name"]] > 1
+    return plans
+
+
 def rename_in_place(db, beat_id: int, new_stem: str) -> str:
     """Rename the beat's file on disk to ``new_stem`` and update the DB.
 

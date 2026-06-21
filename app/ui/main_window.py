@@ -40,6 +40,7 @@ from PySide6.QtWidgets import (
 
 from app.db import Database
 from app.services import importer, renamer
+from app.ui.batch_rename_dialog import BatchRenameDialog
 from app.ui.detail_panel import DetailPanel
 from app.ui.player import AudioPlayer
 from app.ui.settings_dialog import SettingsDialog
@@ -111,8 +112,10 @@ class MainWindow(QMainWindow):
         self.btn_import = QPushButton("Import Beats")
         self.btn_import.setObjectName("Primary")
         self.btn_scan = QPushButton("Scan Folder")
+        self.btn_batch_rename = QPushButton("Batch Rename")
         tb.addWidget(self.btn_import)
         tb.addWidget(self.btn_scan)
+        tb.addWidget(self.btn_batch_rename)
 
         self.search = QLineEdit()
         self.search.setPlaceholderText("Search title, genre, mood, key, tag…")
@@ -130,6 +133,7 @@ class MainWindow(QMainWindow):
 
         self.btn_import.clicked.connect(self._import_files)
         self.btn_scan.clicked.connect(self._scan_folder)
+        self.btn_batch_rename.clicked.connect(self._batch_rename)
         self.btn_settings.clicked.connect(self._open_settings)
         self.search.textChanged.connect(lambda t: self.refresh_library(t))
 
@@ -146,7 +150,7 @@ class MainWindow(QMainWindow):
         self.table.verticalHeader().setVisible(False)
         self.table.setAlternatingRowColors(True)
         self.table.setSelectionBehavior(QAbstractItemView.SelectRows)
-        self.table.setSelectionMode(QAbstractItemView.SingleSelection)
+        self.table.setSelectionMode(QAbstractItemView.ExtendedSelection)
         self.table.setEditTriggers(QAbstractItemView.NoEditTriggers)
         hh = self.table.horizontalHeader()
         hh.setSectionResizeMode(0, QHeaderView.Stretch)
@@ -329,6 +333,30 @@ class MainWindow(QMainWindow):
     def _selected_beat_id(self) -> Optional[int]:
         items = self.table.selectedItems()
         return items[0].data(Qt.UserRole) if items else None
+
+    def _selected_beat_ids(self) -> list:
+        ids = []
+        for item in self.table.selectedItems():
+            bid = item.data(Qt.UserRole)
+            if bid not in ids:
+                ids.append(bid)
+        return ids
+
+    def _batch_rename(self) -> None:
+        ids = self._selected_beat_ids()
+        if not ids:  # nothing selected -> offer the whole filtered view
+            ids = [b["id"] for b in self.db.list_beats(search=self.search.text() or None)]
+        rows = [self.db.get_beat(i) for i in ids]
+        rows = [r for r in rows if r is not None and not importer.is_missing(r)]
+        if not rows:
+            self.statusBar().showMessage(
+                "No present beats selected to rename.", 3000)
+            return
+        dlg = BatchRenameDialog(self.db, rows, self)
+        dlg.exec()
+        if dlg.applied:
+            self.refresh_library(self.search.text())
+            self.statusBar().showMessage(f"Renamed {dlg.applied} file(s)", 4000)
 
     def _on_selection(self) -> None:
         bid = self._selected_beat_id()
