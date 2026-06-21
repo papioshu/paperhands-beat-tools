@@ -18,6 +18,7 @@ class AudioPlayer(QObject):
     def __init__(self):
         super().__init__()
         self.available = False
+        self._init_error = ""
         self._player = None
         self._out = None
         try:
@@ -26,12 +27,22 @@ class AudioPlayer(QObject):
             self._out = QAudioOutput()
             self._player = QMediaPlayer()
             self._player.setAudioOutput(self._out)
-            self._player.positionChanged.connect(self.position_changed)
-            self._player.durationChanged.connect(self.duration_changed)
+            # Forward via callables, NOT signal-to-signal: QMediaPlayer's
+            # position/duration signals carry qlonglong (64-bit), which won't
+            # connect to a Signal(int) and would disable the whole player.
+            self._player.positionChanged.connect(self._emit_position)
+            self._player.durationChanged.connect(self._emit_duration)
             self._player.playbackStateChanged.connect(self._on_state)
             self.available = True
-        except Exception:  # noqa: BLE001 - no multimedia backend; stay disabled
+        except Exception as exc:  # noqa: BLE001 - degrade, but remember why
+            self._init_error = f"{type(exc).__name__}: {exc}"
             self.available = False
+
+    def _emit_position(self, ms) -> None:
+        self.position_changed.emit(int(ms))
+
+    def _emit_duration(self, ms) -> None:
+        self.duration_changed.emit(int(ms))
 
     def _on_state(self, state) -> None:
         from PySide6.QtMultimedia import QMediaPlayer
