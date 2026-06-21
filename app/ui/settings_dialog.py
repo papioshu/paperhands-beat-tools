@@ -1,0 +1,97 @@
+"""Settings dialog: manage watched scan folders and trigger a rescan.
+
+The "Scan directory" button the user asked for lives here. Watched folders
+persist via app.config; "Scan now" rescans them all and reports how many new
+beats were cataloged.
+"""
+
+from __future__ import annotations
+
+from PySide6.QtWidgets import (
+    QDialog,
+    QFileDialog,
+    QHBoxLayout,
+    QLabel,
+    QListWidget,
+    QMessageBox,
+    QPushButton,
+    QVBoxLayout,
+)
+
+from app import config
+from app.services import importer
+
+
+class SettingsDialog(QDialog):
+    def __init__(self, db, parent=None):
+        super().__init__(parent)
+        self.db = db
+        self.setWindowTitle("Settings — Watched Folders")
+        self.resize(560, 360)
+
+        layout = QVBoxLayout(self)
+        heading = QLabel("Watched folders")
+        heading.setObjectName("Heading")
+        layout.addWidget(heading)
+        hint = QLabel("Folders scanned for new beats. Use “Scan now” to catalog "
+                      "any new files found in them.")
+        hint.setObjectName("SubHeading")
+        hint.setWordWrap(True)
+        layout.addWidget(hint)
+
+        self.list = QListWidget()
+        self.list.addItems(config.watched_folders())
+        layout.addWidget(self.list, 1)
+
+        row = QHBoxLayout()
+        self.btn_add = QPushButton("Add folder…")
+        self.btn_remove = QPushButton("Remove")
+        self.btn_scan = QPushButton("Scan now")
+        self.btn_scan.setObjectName("Accent")
+        row.addWidget(self.btn_add)
+        row.addWidget(self.btn_remove)
+        row.addStretch(1)
+        row.addWidget(self.btn_scan)
+        layout.addLayout(row)
+
+        close_row = QHBoxLayout()
+        close_row.addStretch(1)
+        self.btn_close = QPushButton("Close")
+        self.btn_close.setObjectName("Primary")
+        close_row.addWidget(self.btn_close)
+        layout.addLayout(close_row)
+
+        self.btn_add.clicked.connect(self._add)
+        self.btn_remove.clicked.connect(self._remove)
+        self.btn_scan.clicked.connect(self._scan)
+        self.btn_close.clicked.connect(self.accept)
+
+        self.added_count = 0  # total new beats from scans this session
+
+    def _add(self) -> None:
+        folder = QFileDialog.getExistingDirectory(self, "Add a folder to watch")
+        if folder:
+            config.add_watched_folder(folder)
+            self.list.clear()
+            self.list.addItems(config.watched_folders())
+
+    def _remove(self) -> None:
+        item = self.list.currentItem()
+        if item:
+            config.remove_watched_folder(item.text())
+            self.list.takeItem(self.list.row(item))
+
+    def _scan(self) -> None:
+        folders = config.watched_folders()
+        if not folders:
+            QMessageBox.information(self, "Scan", "Add at least one folder first.")
+            return
+        total = 0
+        for folder in folders:
+            try:
+                total += importer.scan_folder(self.db, folder)
+            except NotADirectoryError:
+                continue  # folder went away; skip quietly
+        self.added_count += total
+        QMessageBox.information(self, "Scan complete",
+                                f"Cataloged {total} new beat(s).")
