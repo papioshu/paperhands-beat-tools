@@ -96,6 +96,30 @@ def test_place_mode_drag_moves_marker():
     assert moved[0][1] == pytest.approx(0.75)
 
 
+def test_marker_draggable_in_seek_mode():
+    w = _widget()
+    w.set_markers([0.25])          # marker at x=50
+    w.set_mode("seek")
+    moved = []
+    w.marker_moved.connect(lambda i, f: moved.append((i, f)))
+    _press(w, 50)
+    _move(w, 150)
+    _release(w, 150)
+    assert moved and moved[0][0] == 0
+    assert moved[0][1] == pytest.approx(0.75)
+
+
+def test_tap_marker_in_seek_mode_seeks_to_it():
+    w = _widget()
+    w.set_markers([0.5])           # marker at x=100
+    w.set_mode("seek")
+    seeks = []
+    w.seek_requested.connect(seeks.append)
+    _press(w, 100)
+    _release(w, 100)               # tap, no drag
+    assert seeks and seeks[0] == pytest.approx(0.5)
+
+
 def test_crop_mode_drag_emits_region():
     w = _widget()
     w.set_mode("crop")

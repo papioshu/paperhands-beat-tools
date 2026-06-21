@@ -110,6 +110,25 @@ class SettingsDialog(QDialog):
         self.chk_master_wav.toggled.connect(config.set_convert_master_to_wav)
         layout.addWidget(self.chk_master_wav)
 
+        # Updates (GitHub releases)
+        from app.version import __version__
+        upd_heading = QLabel(f"Updates  —  current version {__version__}")
+        upd_heading.setObjectName("Heading")
+        layout.addWidget(upd_heading)
+        upd_hint = QLabel("GitHub repo (owner/name) to check for new releases.")
+        upd_hint.setObjectName("SubHeading")
+        layout.addWidget(upd_hint)
+        upd_row = QHBoxLayout()
+        self.update_repo_edit = QLineEdit(config.update_repo())
+        self.update_repo_edit.setPlaceholderText("owner/repository")
+        self.btn_check_updates = QPushButton("Check for updates")
+        upd_row.addWidget(self.update_repo_edit, 1)
+        upd_row.addWidget(self.btn_check_updates)
+        layout.addLayout(upd_row)
+        self.update_repo_edit.editingFinished.connect(
+            lambda: config.set_update_repo(self.update_repo_edit.text()))
+        self.btn_check_updates.clicked.connect(self._check_updates)
+
         close_row = QHBoxLayout()
         close_row.addStretch(1)
         self.btn_close = QPushButton("Close")
@@ -127,6 +146,7 @@ class SettingsDialog(QDialog):
         self.added_count = 0       # new beats from scans this session
         self.catalog_changed = False  # whether an import altered the library
         self.tags_changed = False     # whether the tag library folder changed
+        self.check_updates = False    # whether the user asked to check for updates
 
     def _add(self) -> None:
         folder = QFileDialog.getExistingDirectory(self, "Add a folder to watch")
@@ -140,6 +160,11 @@ class SettingsDialog(QDialog):
         if item:
             config.remove_watched_folder(item.text())
             self.list.takeItem(self.list.row(item))
+
+    def _check_updates(self) -> None:
+        config.set_update_repo(self.update_repo_edit.text())
+        self.check_updates = True
+        self.accept()       # main window runs the check after the dialog closes
 
     def _choose_tags_folder(self) -> None:
         folder = QFileDialog.getExistingDirectory(self, "Choose tag library folder")

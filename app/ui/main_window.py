@@ -54,9 +54,11 @@ from app.workers import (
     ExportRunnable,
     ExportSignals,
     FunctionExportRunnable,
+    UpdateChecker,
     WorkerSignals,
 )
 from app import config
+from app.version import __version__
 from core import artwork as core_artwork
 from core import exports as core_exports
 from core import fingerprint as core_fingerprint
@@ -111,10 +113,19 @@ class MainWindow(QMainWindow):
         self._build_player_bar()
         self.statusBar().showMessage("Ready")
 
+        # Update checking (GitHub releases)
+        self.update_checker = UpdateChecker()
+        self.update_checker.checked.connect(self._on_update_checked)
+        self._manual_update_check = False
+
         self.refresh_library()
         self._startup_scan()          # auto-pick-up new files from watched folders
         self.analyze_pending()
         self._update_duplicate_indicator()
+
+        repo = config.update_repo()
+        if repo:                      # silent startup check when configured
+            self.update_checker.check_async(repo, __version__)
 
     # -- construction ------------------------------------------------------
 
@@ -174,6 +185,7 @@ class MainWindow(QMainWindow):
         for i in range(1, len(_COLUMNS)):
             hh.setSectionResizeMode(i, QHeaderView.ResizeToContents)
         self.table.itemSelectionChanged.connect(self._on_selection)
+        self.table.itemDoubleClicked.connect(self._on_row_double_clicked)
         self.split.addWidget(self.table)
 
         self.detail = DetailPanel()
@@ -591,6 +603,11 @@ class MainWindow(QMainWindow):
     def _on_active_tag(self, path: str) -> None:
         self._active_tag = path or None
 
+    def _on_row_double_clicked(self, _item) -> None:
+        # Double-clicking a song starts playback (selection already loaded it).
+        if self.btn_play.isEnabled():
+            self.player.play()
+
     def _preview_active_tag(self) -> None:
         if self._active_tag:
             self.player.play_tag(self._active_tag)
@@ -981,6 +998,30 @@ class MainWindow(QMainWindow):
             self._update_duplicate_indicator()
         if dlg.tags_changed:
             self.tag_panel.refresh_tags()
+        if dlg.check_updates:
+            self._manual_update_check = True
+            self.update_checker.check_async(config.update_repo(), __version__)
+
+    def _on_update_checked(self, available: bool, version: str, url: str, error: str) -> None:
+        from PySide6.QtCore import QUrl
+        from PySide6.QtGui import QDesktopServices
+
+        if available and url:
+            self.statusBar().showMessage(f"Update available: {version}", 8000)
+            box = QMessageBox(self)
+            box.setWindowTitle("Update available")
+            box.setText(f"A new version ({version}) is available.")
+            box.setInformativeText("Open the release page to download it?")
+            box.setStandardButtons(QMessageBox.Open | QMessageBox.Cancel)
+            if box.exec() == QMessageBox.Open:
+                QDesktopServices.openUrl(QUrl(url))
+        elif self._manual_update_check:
+            if error:
+                QMessageBox.information(self, "Updates", f"Couldn't check: {error}")
+            else:
+                QMessageBox.information(self, "Updates",
+                                        f"You're on the latest version ({__version__}).")
+        self._manual_update_check = False
 
     def closeEvent(self, event):  # noqa: N802 - Qt override
         self.db.close()

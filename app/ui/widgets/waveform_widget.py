@@ -165,9 +165,10 @@ class WaveformWidget(QWidget):
         x = event.position().x()
         self._press_x = x
         self._dragging = False
-        if self._mode == "place":
-            self._drag_marker = self._marker_index_at(x)
-        elif self._mode == "crop":
+        # A press on an existing marker grabs it for dragging in ANY mode, so
+        # placed tags can always be moved freely along the waveform.
+        self._drag_marker = self._marker_index_at(x)
+        if self._drag_marker is None and self._mode == "crop":
             self._crop_anchor = self._global_at(x)
             self._crop = (self._crop_anchor, self._crop_anchor)
             self.update()
@@ -180,8 +181,8 @@ class WaveformWidget(QWidget):
         if abs(x - self._press_x) > _DRAG_START_PX:
             self._dragging = True
 
-        if self._mode == "place" and self._drag_marker is not None and self._dragging:
-            self._markers[self._drag_marker] = g
+        if self._drag_marker is not None and self._dragging:
+            self._markers[self._drag_marker] = g       # live drag, any mode
             self.update()
         elif self._mode == "crop" and self._crop_anchor is not None:
             self._crop = (min(self._crop_anchor, g), max(self._crop_anchor, g))
@@ -190,20 +191,19 @@ class WaveformWidget(QWidget):
     def mouseReleaseEvent(self, event):  # noqa: N802
         x = event.position().x()
         g = self._global_at(x)
-        mode = self._mode
 
-        if mode == "seek":
-            self.seek_requested.emit(g)
-        elif mode == "place":
-            if self._dragging and self._drag_marker is not None:
-                self.marker_moved.emit(self._drag_marker, g)
+        if self._drag_marker is not None:
+            if self._dragging:
+                self.marker_moved.emit(self._drag_marker, g)     # moved a tag
+            elif self._mode == "place":
+                self.marker_removed.emit(self._drag_marker)      # tap to remove
             else:
-                idx = self._marker_index_at(x)
-                if idx is not None:
-                    self.marker_removed.emit(idx)
-                else:
-                    self.tag_placed.emit(g)
-        elif mode == "crop" and self._crop is not None:
+                self.seek_requested.emit(g)                      # tap = seek to it
+        elif self._mode == "seek":
+            self.seek_requested.emit(g)
+        elif self._mode == "place":
+            self.tag_placed.emit(g)
+        elif self._mode == "crop" and self._crop is not None:
             self.crop_changed.emit(self._crop[0], self._crop[1])
 
         self._reset_drag()

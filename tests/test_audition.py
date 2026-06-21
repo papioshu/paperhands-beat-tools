@@ -58,6 +58,26 @@ def test_placing_a_tag_auditions_it(tmp_path):
     win.close()
 
 
+def test_double_click_row_starts_playback(tmp_path):
+    beat = tmp_path / "Night.mp3"
+    beat.write_bytes(b"\x00")
+    db = Database(str(tmp_path / "lib.db"))
+    db.add_beat(str(beat), "Night.mp3")
+    db.update_beat(db.list_beats()[0]["id"], analysis_status="done", duration_sec=100.0)
+    db.close()
+    app = _app()
+    win = MainWindow(db_path=str(tmp_path / "lib.db"))
+    app.processEvents()
+    win.table.selectRow(0)
+    app.processEvents()
+
+    played = []
+    win.player.play = lambda: played.append(1)
+    win._on_row_double_clicked(win.table.item(0, 0))
+    assert played == [1]
+    win.close()
+
+
 def test_preview_button_plays_active_tag(tmp_path):
     win = _window(tmp_path)
     played = []

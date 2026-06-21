@@ -10,6 +10,7 @@ _KEY = "watched_folders"
 _TAGS_KEY = "tags_folder"
 _PRODUCER_KEY = "producer"
 _MASTER_WAV_KEY = "convert_master_to_wav"
+_UPDATE_REPO_KEY = "update_repo"
 
 
 def _settings():
@@ -69,3 +70,12 @@ def convert_master_to_wav(default: bool = False) -> bool:
 
 def set_convert_master_to_wav(on: bool) -> None:
     _settings().setValue(_MASTER_WAV_KEY, "1" if on else "0")
+
+
+def update_repo(default: str = "") -> str:
+    """GitHub 'owner/name' the app checks for updates (empty = disabled)."""
+    return str(_settings().value(_UPDATE_REPO_KEY, default) or default)
+
+
+def set_update_repo(repo: str) -> None:
+    _settings().setValue(_UPDATE_REPO_KEY, repo.strip())
