@@ -87,6 +87,35 @@ def test_edit_via_detail_panel_persists(tmp_path):
     win.close()
 
 
+def test_selecting_analyzed_beat_loads_waveform(tmp_path):
+    import numpy as np
+    from core import waveform as wf
+
+    # A real (empty) audio file so the beat isn't "missing", plus a peaks cache.
+    beat_file = tmp_path / "Night.mp3"
+    beat_file.write_bytes(b"\x00\x00")
+    peaks_path = wf.generate_peaks_file(
+        np.linspace(0, 1, 5000).astype("float32"), str(tmp_path / "1"), buckets=300
+    )
+
+    db_path = tmp_path / "lib.db"
+    seed = Database(str(db_path))
+    bid = seed.add_beat(str(beat_file), "Night.mp3")
+    seed.update_beat(bid, bpm=140, key="F#min", analysis_status="done",
+                     waveform_path=peaks_path, duration_sec=12.0)
+    seed.close()
+
+    app = _app()
+    win = MainWindow(db_path=str(db_path))
+    app.processEvents()
+    win.table.selectRow(0)
+    app.processEvents()
+
+    assert win.waveform._peaks is not None
+    assert len(win.waveform._peaks) == 300
+    win.close()
+
+
 def test_search_filters_table(tmp_path):
     db_path = tmp_path / "lib.db"
     seed = Database(str(db_path))

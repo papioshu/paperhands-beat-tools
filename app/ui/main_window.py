@@ -39,8 +39,11 @@ from PySide6.QtWidgets import (
 from app.db import Database
 from app.services import importer, renamer
 from app.ui.detail_panel import DetailPanel
+from app.ui.player import AudioPlayer
 from app.ui.settings_dialog import SettingsDialog
+from app.ui.widgets import WaveformWidget
 from app.workers import AnalysisRunnable, WorkerSignals
+from core import waveform as wf
 
 _COLUMNS = ["Title", "BPM", "Key", "Genre", "Mood", "Status"]
 
@@ -139,7 +142,7 @@ class MainWindow(QMainWindow):
     def _build_player_bar(self) -> None:
         bar = QFrame()
         bar.setObjectName("Panel")
-        bar.setFixedHeight(96)
+        bar.setFixedHeight(108)
         layout = QHBoxLayout(bar)
 
         self.btn_play = QPushButton("Play")
@@ -148,23 +151,39 @@ class MainWindow(QMainWindow):
         self.btn_play.setEnabled(False)
         layout.addWidget(self.btn_play)
 
-        self.waveform = QLabel("waveform appears here (Phase 4)")
-        self.waveform.setObjectName("SubHeading")
-        self.waveform.setAlignment(Qt.AlignCenter)
-        self.waveform.setMinimumHeight(64)
+        self.now_playing = QLabel("—")
+        self.now_playing.setObjectName("AccentLime")
+        self.now_playing.setFixedWidth(150)
+        self.now_playing.setWordWrap(True)
+        layout.addWidget(self.now_playing)
+
+        self.waveform = WaveformWidget()
         layout.addWidget(self.waveform, 1)
+
+        self.time_label = QLabel("0:00 / 0:00")
+        self.time_label.setObjectName("SubHeading")
+        self.time_label.setFixedWidth(90)
+        self.time_label.setAlignment(Qt.AlignCenter)
+        layout.addWidget(self.time_label)
 
         self.seek = QSlider(Qt.Horizontal)
         self.seek.setEnabled(False)
-        self.seek.setFixedWidth(160)
+        self.seek.setFixedWidth(150)
         layout.addWidget(self.seek)
 
-        self.now_playing = QLabel("—")
-        self.now_playing.setObjectName("AccentLime")
-        self.now_playing.setFixedWidth(160)
-        layout.addWidget(self.now_playing)
-
         self._root_layout.addWidget(bar)
+
+        # Player + transport wiring
+        self.player = AudioPlayer()
+        self._duration_ms = 0
+        self.btn_play.clicked.connect(self.player.toggle)
+        self.player.position_changed.connect(self._on_position)
+        self.player.duration_changed.connect(self._on_duration)
+        self.player.playing_changed.connect(
+            lambda playing: self.btn_play.setText("Pause" if playing else "Play")
+        )
+        self.seek.sliderMoved.connect(self.player.set_position)
+        self.waveform.seek_requested.connect(self._seek_fraction)
 
     # -- data --------------------------------------------------------------
 
@@ -272,8 +291,60 @@ class MainWindow(QMainWindow):
             self.db.distinct_values("mood"),
             self.db.all_tag_names(),
         )
-        self.detail.load_beat(row, self.db.get_tags(bid), missing=importer.is_missing(row))
+        missing = importer.is_missing(row)
+        self.detail.load_beat(row, self.db.get_tags(bid), missing=missing)
         self.now_playing.setText(row["title"] or row["filename"])
+        self._load_into_player(row, missing)
+
+    # -- playback ----------------------------------------------------------
+
+    def _load_into_player(self, row, missing: bool) -> None:
+        # Waveform peaks (if analyzed)
+        self.waveform.set_position(0.0)
+        path = row["waveform_path"]
+        if path and Path(path).exists():
+            try:
+                self.waveform.set_peaks(wf.load_peaks(path))
+            except Exception:  # noqa: BLE001 - bad cache shouldn't break selection
+                self.waveform.clear()
+        else:
+            self.waveform.clear()
+
+        # Audio source
+        playable = (not missing) and self.player.available
+        if not missing:
+            self.player.load(row["file_path"])
+        else:
+            self.player.stop()
+        self.btn_play.setEnabled(playable)
+        self.seek.setEnabled(playable)
+        self.btn_play.setText("Play")
+
+    def _on_duration(self, ms: int) -> None:
+        self._duration_ms = ms
+        self.seek.setRange(0, ms)
+        self._update_time(0)
+
+    def _on_position(self, ms: int) -> None:
+        if not self.seek.isSliderDown():
+            self.seek.blockSignals(True)
+            self.seek.setValue(ms)
+            self.seek.blockSignals(False)
+        frac = (ms / self._duration_ms) if self._duration_ms else 0.0
+        self.waveform.set_position(frac)
+        self._update_time(ms)
+
+    def _seek_fraction(self, fraction: float) -> None:
+        if self._duration_ms:
+            self.player.set_position(int(fraction * self._duration_ms))
+
+    def _update_time(self, ms: int) -> None:
+        self.time_label.setText(f"{self._fmt(ms)} / {self._fmt(self._duration_ms)}")
+
+    @staticmethod
+    def _fmt(ms: int) -> str:
+        s = int(ms // 1000)
+        return f"{s // 60}:{s % 60:02d}"
 
     def _on_save(self, beat_id: int, fields: dict, tag_names: list) -> None:
         self.db.update_beat(beat_id, **fields)
