@@ -7,9 +7,11 @@ touches the database itself — the main window owns persistence.
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import List, Optional
 
 from PySide6.QtCore import Qt, Signal
+from PySide6.QtGui import QPixmap
 from PySide6.QtWidgets import (
     QComboBox,
     QCompleter,
@@ -42,6 +44,8 @@ class DetailPanel(QFrame):
     saved = Signal(int, dict, list)        # beat_id, fields, tag_names
     rename_requested = Signal(int)         # beat_id
     relocate_requested = Signal(int)       # beat_id
+    set_artwork_requested = Signal(int)    # beat_id (pick a local image)
+    generate_artwork_requested = Signal(int)  # beat_id (Pillow)
 
     def __init__(self):
         super().__init__()
@@ -69,6 +73,30 @@ class DetailPanel(QFrame):
         self.confidence.setObjectName("SubHeading")
         self.confidence.setWordWrap(True)
         outer.addWidget(self.confidence)
+
+        # Artwork: thumbnail + set-your-own / generate
+        art_row = QHBoxLayout()
+        self.artwork_thumb = QLabel("no\nartwork")
+        self.artwork_thumb.setObjectName("SubHeading")
+        self.artwork_thumb.setAlignment(Qt.AlignCenter)
+        self.artwork_thumb.setFixedSize(88, 88)
+        self.artwork_thumb.setStyleSheet(
+            "border: 1px solid #3D434F; border-radius: 6px;")
+        art_row.addWidget(self.artwork_thumb)
+        art_btns = QVBoxLayout()
+        self.btn_set_art = QPushButton("Set image…")
+        self.btn_gen_art = QPushButton("Generate")
+        art_btns.addWidget(self.btn_set_art)
+        art_btns.addWidget(self.btn_gen_art)
+        art_btns.addStretch(1)
+        art_row.addLayout(art_btns)
+        art_row.addStretch(1)
+        outer.addLayout(art_row)
+
+        self.btn_set_art.clicked.connect(
+            lambda: self._beat_id is not None and self.set_artwork_requested.emit(self._beat_id))
+        self.btn_gen_art.clicked.connect(
+            lambda: self._beat_id is not None and self.generate_artwork_requested.emit(self._beat_id))
 
         form = QFormLayout()
         form.setLabelAlignment(Qt.AlignRight)
@@ -159,15 +187,27 @@ class DetailPanel(QFrame):
         self.tags.setText(", ".join(tag_names))
         self.notes.setPlainText(row["notes"] or "")
 
+        self.set_artwork_thumb(_row_get(row, "artwork_path"))
         self.missing_banner.setVisible(missing)
         self.btn_relocate.setVisible(missing)
         self.btn_rename.setDisabled(missing)
         self.set_enabled(True)
 
+    def set_artwork_thumb(self, path) -> None:
+        if path and Path(path).exists():
+            pm = QPixmap(str(path))
+            if not pm.isNull():
+                self.artwork_thumb.setPixmap(pm.scaled(
+                    86, 86, Qt.KeepAspectRatio, Qt.SmoothTransformation))
+                return
+        self.artwork_thumb.setPixmap(QPixmap())
+        self.artwork_thumb.setText("no\nartwork")
+
     def clear(self) -> None:
         self._beat_id = None
         self.analysis.setText("Select a beat to edit.")
         self.confidence.setText("")
+        self.set_artwork_thumb(None)
         for w in (self.title, self.tags):
             w.clear()
         for c in (self.bpm, self.key, self.genre, self.subgenre, self.mood):
@@ -179,7 +219,8 @@ class DetailPanel(QFrame):
 
     def set_enabled(self, on: bool) -> None:
         for w in (self.title, self.bpm, self.key, self.genre, self.subgenre,
-                  self.mood, self.tags, self.notes, self.btn_save, self.btn_rename):
+                  self.mood, self.tags, self.notes, self.btn_save, self.btn_rename,
+                  self.btn_set_art, self.btn_gen_art):
             w.setEnabled(on)
 
     # -- internals ---------------------------------------------------------

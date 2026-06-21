@@ -117,6 +117,7 @@ def export_with_placements(
     tag_cache: Optional[Dict[str, object]] = None,
     crop: Optional[tuple] = None,
     tags: Optional[Dict[str, str]] = None,
+    cover: Optional[str] = None,
 ) -> str:
     """Mix an explicit list of placements onto a beat and export it.
 
@@ -148,5 +149,5 @@ def export_with_placements(
             mixed = mixed[start_ms:end_ms]
 
     mixed = audio.normalize_safe(mixed, config.headroom_db)
-    audio.export_mp3(mixed, out_path, config.bitrate, tags=tags)
+    audio.export_mp3(mixed, out_path, config.bitrate, tags=tags, cover=cover)
     return out_path

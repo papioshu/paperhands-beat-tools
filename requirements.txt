@@ -7,6 +7,7 @@ librosa>=0.10.0    # BPM + key + drop detection
 soundfile>=0.12.1  # audio decoding backend for librosa
 numpy>=1.24        # array math
 pandas>=2.0        # CSV report
+Pillow>=10.0       # procedural cover-art generation (GUI)
 
 # Dev / testing only:
 pytest>=8.0

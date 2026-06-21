@@ -55,6 +55,7 @@ from app.workers import (
     WorkerSignals,
 )
 from app import config
+from core import artwork as core_artwork
 from core import exports as core_exports
 from core import fingerprint as core_fingerprint
 from core import metadata as core_metadata
@@ -170,6 +171,8 @@ class MainWindow(QMainWindow):
         self.detail.saved.connect(self._on_save)
         self.detail.rename_requested.connect(self._on_rename)
         self.detail.relocate_requested.connect(self._on_relocate)
+        self.detail.set_artwork_requested.connect(self._set_artwork)
+        self.detail.generate_artwork_requested.connect(self._generate_artwork)
 
         self.tag_panel = TagLibraryPanel()
         self.tag_panel.active_tag_changed.connect(self._on_active_tag)
@@ -653,10 +656,12 @@ class MainWindow(QMainWindow):
         cfg = TaggingConfig(producer=config.producer())
         placements = list(self._placements)
         src = self._current_path
+        art = row["artwork_path"]
+        cover = str(art) if art and Path(art).exists() else None
 
         def work():
             pipeline.export_with_placements(
-                src, placements, str(out_path), cfg, crop=crop, tags=tags)
+                src, placements, str(out_path), cfg, crop=crop, tags=tags, cover=cover)
             return str(out_path)
 
         self._update_manifest(row, tagged_preview=str(out_path))
@@ -760,6 +765,44 @@ class MainWindow(QMainWindow):
             return
         self.refresh_library(self.search.text())
         self.statusBar().showMessage(f"Renamed to {new_stem}", 3000)
+
+    def _set_artwork(self, beat_id: int) -> None:
+        row = self.db.get_beat(beat_id)
+        if row is None:
+            return
+        path, _ = QFileDialog.getOpenFileName(
+            self, "Choose artwork image (your own)", "",
+            "Images (*.png *.jpg *.jpeg *.webp *.bmp)")
+        if not path:
+            return
+        ext = Path(path).suffix or ".png"
+        dst = self._export_subdir("artwork") / f"{self._beat_name(row)}{ext}"
+        try:
+            core_artwork.import_artwork(path, str(dst))
+        except Exception as exc:  # noqa: BLE001
+            QMessageBox.warning(self, "Artwork", str(exc))
+            return
+        self.db.update_beat(beat_id, artwork_path=str(dst))
+        if beat_id == self._selected_beat_id():
+            self.detail.set_artwork_thumb(str(dst))
+        self.statusBar().showMessage("Artwork set", 2000)
+
+    def _generate_artwork(self, beat_id: int) -> None:
+        row = self.db.get_beat(beat_id)
+        if row is None:
+            return
+        dst = self._export_subdir("artwork") / f"{self._beat_name(row)}.png"
+        try:
+            core_artwork.generate_artwork(
+                str(dst), title=row["title"] or Path(row["filename"]).stem,
+                bpm=row["bpm"], key=row["key"], mood=row["mood"])
+        except Exception as exc:  # noqa: BLE001
+            QMessageBox.warning(self, "Artwork", str(exc))
+            return
+        self.db.update_beat(beat_id, artwork_path=str(dst))
+        if beat_id == self._selected_beat_id():
+            self.detail.set_artwork_thumb(str(dst))
+        self.statusBar().showMessage("Artwork generated", 2000)
 
     def _on_relocate(self, beat_id: int) -> None:
         path, _ = QFileDialog.getOpenFileName(
