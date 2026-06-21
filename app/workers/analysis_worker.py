@@ -39,8 +39,10 @@ class AnalysisRunnable(QRunnable):
                 fp = ""
             try:
                 sections = structure.detect_structure(samples, sr)
+                drop = structure.detect_drop(samples, sr, sections)
+                hook = structure.detect_hook(samples, sr, sections)
             except Exception:  # noqa: BLE001 - structure is best-effort
-                sections = []
+                sections, drop, hook = [], None, None
 
             result = {
                 "bpm": det.bpm,
@@ -54,6 +56,9 @@ class AnalysisRunnable(QRunnable):
                 "key_candidates": json.dumps(list(det.key_candidates)),
                 "fingerprint": fp,
                 "structure": json.dumps(sections),
+                "drop_sec": drop,
+                "hook_start": hook[0] if hook else None,
+                "hook_end": hook[1] if hook else None,
             }
             self.signals.beat_analyzed.emit(self.beat_id, result)
         except Exception as exc:  # noqa: BLE001 - report, never crash the pool

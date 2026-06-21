@@ -36,6 +36,8 @@ class WaveformWidget(QWidget):
         self._position = 0.0
         self._markers: List[float] = []
         self._sections: List[float] = []     # structure boundaries (fractions)
+        self._drop: Optional[float] = None    # detected drop (fraction)
+        self._hook: Optional[Tuple[float, float]] = None  # detected hook (fractions)
         self._crop: Optional[Tuple[float, float]] = None
         self._mode = "seek"
 
@@ -65,6 +67,8 @@ class WaveformWidget(QWidget):
         self._position = 0.0
         self._markers = []
         self._sections = []
+        self._drop = None
+        self._hook = None
         self._crop = None
         self._reset_drag()
         self.update()
@@ -79,6 +83,14 @@ class WaveformWidget(QWidget):
 
     def set_sections(self, fractions: List[float]) -> None:
         self._sections = [max(0.0, min(1.0, f)) for f in fractions]
+        self.update()
+
+    def set_drop(self, fraction: Optional[float]) -> None:
+        self._drop = None if fraction is None else max(0.0, min(1.0, fraction))
+        self.update()
+
+    def set_hook(self, span: Optional[Tuple[float, float]]) -> None:
+        self._hook = span
         self.update()
 
     def clear_crop(self) -> None:
@@ -166,6 +178,7 @@ class WaveformWidget(QWidget):
         mid = h / 2
         p.fillRect(self.rect(), QColor(COLORS["panel"]))
 
+        self._paint_hook(p, w, h)
         self._paint_crop(p, w, h)
         self._paint_sections(p, w, h)
 
@@ -183,6 +196,7 @@ class WaveformWidget(QWidget):
                 p.setPen(QPen(played if x <= played_x else unplayed, 1))
                 p.drawLine(int(x), int(mid - amp), int(x), int(mid + amp))
 
+        self._paint_drop(p, w, h)
         self._paint_markers(p, w, h)
 
         if self._peaks is not None and len(self._peaks):
@@ -190,6 +204,22 @@ class WaveformWidget(QWidget):
             px = int(self._position * w)
             p.drawLine(px, 0, px, h)
         p.end()
+
+    def _paint_hook(self, p: QPainter, w: int, h: int) -> None:
+        if not self._hook:
+            return
+        a, b = self._hook
+        x0, x1 = int(a * w), int(b * w)
+        band = QColor(COLORS["lime"])
+        band.setAlpha(28)
+        p.fillRect(x0, 0, max(1, x1 - x0), h, band)
+
+    def _paint_drop(self, p: QPainter, w: int, h: int) -> None:
+        if self._drop is None:
+            return
+        x = int(self._drop * w)
+        p.setPen(QPen(QColor(COLORS["warn"]), 2, Qt.DotLine))
+        p.drawLine(x, 0, x, h)
 
     def _paint_crop(self, p: QPainter, w: int, h: int) -> None:
         if not self._crop:

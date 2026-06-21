@@ -95,6 +95,8 @@ class MainWindow(QMainWindow):
         self._beat_duration_sec = 0.0
         self._current_path = None
         self._current_beat_id = None
+        self._drop_sec = None
+        self._hook_start = None
 
         self._build_toolbar()
         self._build_body()
@@ -174,6 +176,8 @@ class MainWindow(QMainWindow):
         self.tag_panel.place_mode_changed.connect(self._on_place_mode)
         self.tag_panel.crop_mode_changed.connect(self._on_crop_mode)
         self.tag_panel.autoplace_requested.connect(self._on_autoplace)
+        self.tag_panel.tag_at_drop_requested.connect(self._tag_at_drop)
+        self.tag_panel.tag_at_hook_requested.connect(self._tag_at_hook)
         self.tag_panel.clear_requested.connect(self._on_clear_tags)
         self.tag_panel.export_tagged_preview_requested.connect(self._export_tagged_preview)
         self.tag_panel.export_clean_master_requested.connect(self._export_clean_master)
@@ -419,10 +423,17 @@ class MainWindow(QMainWindow):
         else:
             self.waveform.clear()
 
-        # Structure section dividers (if analyzed)
+        # Structure section dividers + detected drop/hook (if analyzed)
         dur = self._beat_duration_sec or 0.0
         sections = self._load_json_list(row["structure"]) if dur else []
         self.waveform.set_sections([t / dur for t in sections] if dur else [])
+
+        self._drop_sec = row["drop_sec"]
+        self._hook_start = row["hook_start"]
+        self.waveform.set_drop((self._drop_sec / dur) if (self._drop_sec and dur) else None)
+        hs, he = row["hook_start"], row["hook_end"]
+        self.waveform.set_hook(
+            (hs / dur, he / dur) if (hs is not None and he is not None and dur) else None)
 
         # Audio source
         playable = (not missing) and self.player.available
@@ -556,6 +567,18 @@ class MainWindow(QMainWindow):
             duration_sec=self._beat_duration_sec, tag_paths=tags, interval_sec=40.0,
         )
         self._refresh_markers(save=True)
+
+    def _tag_at_drop(self) -> None:
+        if self._drop_sec and self._beat_duration_sec > 0:
+            self._place_tag_at_fraction(self._drop_sec / self._beat_duration_sec)
+        else:
+            self.statusBar().showMessage("No drop detected for this beat.", 3000)
+
+    def _tag_at_hook(self) -> None:
+        if self._hook_start is not None and self._beat_duration_sec > 0:
+            self._place_tag_at_fraction(self._hook_start / self._beat_duration_sec)
+        else:
+            self.statusBar().showMessage("No hook detected for this beat.", 3000)
 
     def _on_clear_tags(self) -> None:
         self._placements = []

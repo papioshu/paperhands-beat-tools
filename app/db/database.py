@@ -22,7 +22,7 @@ _EDITABLE = {
     "duration_sec", "file_size", "waveform_path", "analysis_status",
     "file_path", "filename", "placements",
     "bpm_confidence", "key_confidence", "bpm_candidates", "key_candidates",
-    "fingerprint", "structure",
+    "fingerprint", "structure", "drop_sec", "hook_start", "hook_end",
 }
 
 # Columns added after the original schema shipped; applied as additive migrations
@@ -35,6 +35,9 @@ _MIGRATIONS = {
     "key_candidates": "ALTER TABLE beats ADD COLUMN key_candidates TEXT",
     "fingerprint": "ALTER TABLE beats ADD COLUMN fingerprint TEXT",
     "structure": "ALTER TABLE beats ADD COLUMN structure TEXT",
+    "drop_sec": "ALTER TABLE beats ADD COLUMN drop_sec REAL",
+    "hook_start": "ALTER TABLE beats ADD COLUMN hook_start REAL",
+    "hook_end": "ALTER TABLE beats ADD COLUMN hook_end REAL",
 }
 
 _SCHEMA = """

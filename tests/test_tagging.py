@@ -94,6 +94,33 @@ def test_place_requires_active_tag(tmp_path):
     win.close()
 
 
+def test_tag_at_drop_and_hook_place_at_detected_times(tmp_path):
+    beat = tmp_path / "Night.mp3"
+    beat.write_bytes(b"\x00\x00")
+    db_path = tmp_path / "lib.db"
+    seed = Database(str(db_path))
+    bid = seed.add_beat(str(beat), "Night.mp3")
+    seed.update_beat(bid, duration_sec=100.0, analysis_status="done",
+                     drop_sec=30.0, hook_start=60.0, hook_end=75.0)
+    seed.close()
+
+    app = _app()
+    win = MainWindow(db_path=str(db_path))
+    app.processEvents()
+    win.table.selectRow(0)
+    app.processEvents()
+    win._active_tag = "/tags/t.wav"
+
+    # drop/hook shown on the waveform
+    assert win.waveform._drop == pytest.approx(0.30)
+    assert win.waveform._hook == pytest.approx((0.60, 0.75))
+
+    win._tag_at_drop()
+    win._tag_at_hook()
+    assert sorted(round(p.position_sec) for p in win._placements) == [30, 60]
+    win.close()
+
+
 def test_autoplace_lays_down_interval_tags(tmp_path):
     win = _window_with_beat(tmp_path)
     win.tag_panel.all_tag_paths = lambda: ["/tags/a.wav"]
