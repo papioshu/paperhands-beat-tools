@@ -25,14 +25,14 @@
   (mute/solo/volume/pan) and live preview.
 - Exports: tagged previews, clean masters, tag stems, and buyer packages.
 - Batch operations across many beats with progress and time-remaining.
-- Stem splitting (drums/bass/vocals/other) with a one-click setup.
+- Stem splitting (drums/bass/vocals/other), included and ready to use.
 - DAW Mode: a lightweight multitrack stem workspace with saved sessions.
 - Automatic update checking.
 
 ### Known issues
 - Because it's a new, unsigned app, Windows SmartScreen may warn on first launch
   (choose **Run anyway**).
-- Stem separation requires a one-time setup the first time you use it, and is
-  automatically estimated — results may contain artifacts. Your originals are
+- Stem separation downloads a small model the first time you use it (needs
+  internet once), and is automatically estimated — results may contain artifacts. Your originals are
   never changed.
 - Stem splitting is CPU-intensive; large libraries take time to process.

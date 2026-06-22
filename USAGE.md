@@ -59,7 +59,7 @@ Stems) across many selected beats with progress, time-remaining, and counts.
 
 ## Stem Splitter
 **Batch → Split Stems** separates a beat into drums / bass / vocals / other. The
-first time, accept the one-click setup for the stem engine. Stems are
+first split downloads a small model once (needs internet). Stems are
 automatically separated and may contain artifacts; the source is never modified.
 
 ## DAW Mode

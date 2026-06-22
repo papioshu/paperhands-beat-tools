@@ -1,4 +1,4 @@
-; Inno Setup script for Paperhand's Beat Tools.
+; Inno Setup script for Paperhand Beat Manager.
 ; Build:  ISCC.exe packaging\installer.iss   (after the PyInstaller build)
 ; Produces packaging\Output\PaperhandsBeatTools-Setup-<version>.exe
 

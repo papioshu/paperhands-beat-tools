@@ -67,9 +67,9 @@ Files are named clearly, e.g. `Midnight Drive_140BPM_Fsharpmin_tagged.mp3`.
 ## Stem Splitter & DAW Mode
 
 - **Split Stems** (Batch menu) separates a beat into **drums / bass / vocals /
-  other**. The first time you use it, the app offers a one-click setup for the
-  stem engine. Stems are automatically separated and may contain artifacts; your original
-  file is never modified.
+  other**. The first split downloads a small separation model once (needs
+  internet); after that it works offline. Stems are automatically separated and
+  may contain artifacts; your original file is never modified.
 - **DAW Mode** opens a lightweight multitrack workspace for a beat with stems:
   mute/solo/volume/pan each stem, play the live mix, place tags on the timeline,
   and export a tagged preview, the current mix, the clean master, individual
