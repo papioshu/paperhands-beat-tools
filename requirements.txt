@@ -9,5 +9,10 @@ numpy>=1.24        # array math
 pandas>=2.0        # CSV report
 Pillow>=10.0       # procedural cover-art generation (GUI)
 
+# Optional — stem separation (DAW Mode / Split Stems). Heavy (pulls PyTorch).
+# The app offers a one-click install of this when needed:
+#   pip install demucs
+# (we save stems via soundfile, so torchcodec is NOT required)
+
 # Dev / testing only:
 pytest>=8.0

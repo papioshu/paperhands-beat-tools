@@ -52,24 +52,58 @@ def _collect_stems(search_dir: str, out_dir: str) -> Dict[str, str]:
 class DemucsEngine(StemEngine):
     name = "Demucs"
 
+    def __init__(self, model_name: str = "htdemucs"):
+        self.model_name = model_name
+        self._model = None   # cached across splits in a session
+
     def available(self) -> bool:
-        return (importlib.util.find_spec("demucs") is not None
-                or shutil.which("demucs") is not None)
+        return importlib.util.find_spec("demucs") is not None
 
     def install_command(self) -> List[str]:
+        # demucs + a NumPy-2-safe torch; torchcodec is avoided (we save via soundfile)
         return [sys.executable, "-m", "pip", "install", "demucs"]
 
+    def _load_model(self):
+        if self._model is None:
+            from demucs.pretrained import get_model
+            self._model = get_model(self.model_name)
+            self._model.eval()
+        return self._model
+
     def split(self, input_path: str, out_dir: str) -> Dict[str, str]:
-        tmp = tempfile.mkdtemp(prefix="demucs_")
-        proc = subprocess.run(
-            [sys.executable, "-m", "demucs", "-o", tmp, input_path],
-            capture_output=True, text=True)
-        if proc.returncode != 0:
-            raise RuntimeError((proc.stderr or proc.stdout or "demucs failed")[-600:])
-        stems = _collect_stems(tmp, out_dir)
-        if not stems:
+        """Separate via the Demucs model and write each stem with soundfile.
+
+        Uses the low-level model API (not the CLI) and saves with soundfile to
+        avoid torchaudio's torchcodec dependency. Runs on GPU if available.
+        """
+        import numpy as np
+        import soundfile as sf
+        import torch
+        from demucs.apply import apply_model
+        from demucs.audio import AudioFile
+
+        model = self._load_model()
+        wav = AudioFile(input_path).read(
+            samplerate=model.samplerate, channels=model.audio_channels)
+        if wav.dim() == 3:           # drop the stream dim -> (channels, samples)
+            wav = wav[0]
+        ref = wav.mean(0)
+        wav_n = (wav - ref.mean()) / (ref.std() + 1e-8)
+
+        device = "cuda" if torch.cuda.is_available() else "cpu"
+        with torch.no_grad():
+            sources = apply_model(model, wav_n[None], device=device, progress=False)[0]
+        sources = sources * (ref.std() + 1e-8) + ref.mean()
+
+        os.makedirs(out_dir, exist_ok=True)
+        found: Dict[str, str] = {}
+        for name, src in zip(model.sources, sources):
+            path = os.path.join(out_dir, f"{name}.wav")
+            sf.write(path, np.ascontiguousarray(src.cpu().numpy().T), model.samplerate)
+            found[name] = path
+        if not found:
             raise RuntimeError("Demucs produced no stems.")
-        return stems
+        return found
 
 
 ENGINES = {"Demucs": DemucsEngine}
