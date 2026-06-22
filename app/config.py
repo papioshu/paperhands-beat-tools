@@ -16,6 +16,10 @@ _UPDATE_REPO_KEY = "update_repo"
 def _settings():
     from PySide6.QtCore import QSettings
 
+    from app import paths
+    if paths.is_portable():
+        # Portable build: keep settings in a local file beside the app.
+        return QSettings(str(paths.settings_ini()), QSettings.IniFormat)
     return QSettings(ORG, APP)
 
 

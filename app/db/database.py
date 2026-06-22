@@ -116,6 +116,28 @@ class Database:
     def close(self) -> None:
         self.conn.close()
 
+    def backup(self, dest_dir: str, keep: int = 5) -> Optional[str]:
+        """Write a rolling, timestamped copy of the DB; keep the newest ``keep``."""
+        import datetime
+        import glob
+        import os
+        import shutil
+
+        if self.path == ":memory:" or not os.path.exists(self.path):
+            return None
+        os.makedirs(dest_dir, exist_ok=True)
+        self.conn.commit()
+        ts = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+        dest = os.path.join(dest_dir, f"library_{ts}.db")
+        shutil.copy2(self.path, dest)
+        old = sorted(glob.glob(os.path.join(dest_dir, "library_*.db")))[:-keep]
+        for f in old:
+            try:
+                os.remove(f)
+            except OSError:
+                pass
+        return dest
+
     # -- beats -------------------------------------------------------------
 
     def add_beat(self, file_path: str, filename: str, **fields) -> int:

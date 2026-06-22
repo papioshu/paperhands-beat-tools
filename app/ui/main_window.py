@@ -70,7 +70,7 @@ from app.workers import (
     UpdateChecker,
     WorkerSignals,
 )
-from app import config, updater
+from app import config, recovery, updater
 from app.version import __version__
 from core import artwork as core_artwork
 from core import exports as core_exports
@@ -159,6 +159,7 @@ class MainWindow(QMainWindow):
         self._startup_scan()          # auto-pick-up new files from watched folders
         self.analyze_pending()
         self._update_duplicate_indicator()
+        self._startup_safety()        # rolling DB backup + crash-recovery prompt
 
         repo = config.update_repo()
         # Silent startup check when configured; skipped under the offscreen test
@@ -217,6 +218,9 @@ class MainWindow(QMainWindow):
 
         self.btn_settings = QPushButton("Settings")
         tb.addWidget(self.btn_settings)
+        self.btn_about = QPushButton("About")
+        self.btn_about.clicked.connect(self._show_about)
+        tb.addWidget(self.btn_about)
 
         self.btn_import.clicked.connect(self._import_files)
         self.btn_scan.clicked.connect(self._scan_folder)
@@ -826,6 +830,7 @@ class MainWindow(QMainWindow):
         # New beat -> load its saved tag placements (persisted per beat).
         self._current_path = row["file_path"]
         self._current_beat_id = row["id"]
+        recovery.note_open(str(self._export_base()), row["id"])
         self._beat_duration_sec = row["duration_sec"] or 0.0
         self._placements = self._load_placements(row)
         self._layers = self._load_layers(row)
@@ -1122,6 +1127,41 @@ class MainWindow(QMainWindow):
     def _export_base(self) -> Path:
         base = Path(self.db.path).resolve().parent if self.db.path != ":memory:" else Path.cwd()
         return base
+
+    def _startup_safety(self) -> None:
+        base = str(self._export_base())
+        try:
+            self.db.backup(str(self._export_base() / "backups"))
+        except Exception:  # noqa: BLE001 - backups are best-effort
+            pass
+        if os.environ.get("QT_QPA_PLATFORM") == "offscreen":
+            return
+        bid = recovery.pending(base)
+        if bid and self.db.get_beat(bid):
+            if QMessageBox.question(self, APP_NAME,
+                                    "A recovery session was found. Restore it?") \
+                    == QMessageBox.Yes:
+                self._select_beat_by_id(bid)
+            else:
+                recovery.mark_clean(base)
+
+    def _select_beat_by_id(self, beat_id: int) -> None:
+        for r in range(self.table.rowCount()):
+            item = self.table.item(r, 0)
+            if item and item.data(Qt.UserRole) == beat_id:
+                self.table.selectRow(r)
+                return
+
+    def _show_about(self) -> None:
+        repo = "https://github.com/papioshu/paperhands-beat-tools"
+        QMessageBox.about(
+            self, f"About {APP_NAME}",
+            f"<h3>{APP_NAME}</h3>"
+            f"<p>Version {__version__}</p>"
+            f"<p>A beat catalog, tagger, stem splitter, and packager for producers.</p>"
+            f"<p>Website &amp; GitHub: <a href='{repo}'>{repo}</a><br>"
+            f"Support: <a href='{repo}/issues'>open an issue</a></p>"
+            f"<p>Tags overlay your own audio only. Your masters are never modified.</p>")
 
     def _export_subdir(self, name: str) -> Path:
         d = self._export_base() / name
@@ -1450,5 +1490,6 @@ class MainWindow(QMainWindow):
         QMessageBox.warning(self, "Update", message)
 
     def closeEvent(self, event):  # noqa: N802 - Qt override
+        recovery.mark_clean(str(self._export_base()))   # clean shutdown
         self.db.close()
         super().closeEvent(event)
