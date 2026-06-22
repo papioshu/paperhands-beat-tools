@@ -27,6 +27,7 @@ from PySide6.QtWidgets import (
     QLabel,
     QLineEdit,
     QMainWindow,
+    QMenu,
     QMessageBox,
     QPushButton,
     QScrollArea,
@@ -53,6 +54,8 @@ from app.ui.tag_panel import TagLibraryPanel
 from app.ui.widgets import WaveformWidget
 from app.workers import (
     AnalysisRunnable,
+    BatchRunnable,
+    BatchSignals,
     ExportRunnable,
     ExportSignals,
     FunctionExportRunnable,
@@ -124,6 +127,12 @@ class MainWindow(QMainWindow):
         self.install_signals = ExportSignals()
         self.install_signals.done.connect(self._on_installer_ready)
         self.install_signals.error.connect(self._on_installer_error)
+        self.batch_signals = BatchSignals()
+        self.batch_signals.progress.connect(self._on_batch_progress)
+        self.batch_signals.result.connect(self._on_batch_result)
+        self.batch_signals.finished.connect(self._on_batch_finished)
+        self._batch_ok = self._batch_fail = 0
+        self._batch_folder = None
 
         self.refresh_library()
         self._startup_scan()          # auto-pick-up new files from watched folders
@@ -146,11 +155,18 @@ class MainWindow(QMainWindow):
         self.btn_import = QPushButton("Import Beats")
         self.btn_import.setObjectName("Primary")
         self.btn_scan = QPushButton("Scan Folder")
-        self.btn_batch_rename = QPushButton("Batch Rename")
+        self.btn_batch = QPushButton("Batch ▾")
+        batch_menu = QMenu(self.btn_batch)
+        batch_menu.addAction("Detect BPM / Key", self._batch_detect)
+        batch_menu.addAction("Rename Files…", self._batch_rename)
+        batch_menu.addAction("Auto-Place Tags…", self._on_autoplace)
+        batch_menu.addAction("Export Tagged Previews", self._batch_export_previews)
+        batch_menu.addAction("Generate Buyer Packages", self._batch_buyer_packages)
+        self.btn_batch.setMenu(batch_menu)
         self.btn_duplicates = QPushButton("Duplicates")
         tb.addWidget(self.btn_import)
         tb.addWidget(self.btn_scan)
-        tb.addWidget(self.btn_batch_rename)
+        tb.addWidget(self.btn_batch)
         tb.addWidget(self.btn_duplicates)
 
         self.search = QLineEdit()
@@ -169,7 +185,6 @@ class MainWindow(QMainWindow):
 
         self.btn_import.clicked.connect(self._import_files)
         self.btn_scan.clicked.connect(self._scan_folder)
-        self.btn_batch_rename.clicked.connect(self._batch_rename)
         self.btn_duplicates.clicked.connect(self._find_duplicates)
         self.btn_settings.clicked.connect(self._open_settings)
         self.search.textChanged.connect(lambda t: self.refresh_library(t))
@@ -486,6 +501,120 @@ class MainWindow(QMainWindow):
         if dlg.applied:
             self.refresh_library(self.search.text())
             self.statusBar().showMessage(f"Renamed {dlg.applied} file(s)", 4000)
+
+    # -- batch operations -------------------------------------------------
+
+    def _batch_targets(self) -> list:
+        ids = self._selected_beat_ids()
+        if not ids:
+            self.statusBar().showMessage(
+                "Select beats first (Ctrl/Shift-click in the library).", 3500)
+        return ids
+
+    def _batch_detect(self) -> None:
+        ids = self._batch_targets()
+        if not ids:
+            return
+        for bid in ids:
+            self.db.update_beat(bid, analysis_status="pending")
+        self.refresh_library(self.search.text())
+        self.analyze_pending()   # reuses the analysis worker + progress
+
+    def _batch_export_previews(self) -> None:
+        ids = self._batch_targets()
+        if not ids:
+            return
+        jobs = []
+        for bid in ids:
+            row = self.db.get_beat(bid)
+            if row is None or importer.is_missing(row):
+                continue
+            placements = self._load_placements(row)
+            if not placements:
+                continue
+            beat_name = self._beat_name(row)
+            out = self._export_subdir("previews") / f"{beat_name}_TAGGED.mp3"
+            art = row["artwork_path"]
+            jobs.append({
+                "name": row["filename"], "input": row["file_path"],
+                "placements": placements, "layers": self._load_layers(row),
+                "out": str(out), "cfg": TaggingConfig(producer=config.producer()),
+                "cover": str(art) if art and Path(art).exists() else None,
+                "tags": core_metadata.build_id3_tags(
+                    config.producer(), title=row["title"] or beat_name,
+                    genre=row["genre"], bpm=row["bpm"], key=row["key"],
+                    mood=row["mood"], tags=self.db.get_tags(bid)),
+            })
+        if not jobs:
+            self.statusBar().showMessage("No selected beats have placed tags.", 3500)
+            return
+
+        def fn(j):
+            return pipeline.export_with_placements(
+                j["input"], j["placements"], j["out"], j["cfg"],
+                tags=j["tags"], cover=j["cover"], layers=j["layers"])
+
+        self._run_batch(jobs, fn, "Exporting previews", self._export_subdir("previews"))
+
+    def _batch_buyer_packages(self) -> None:
+        ids = self._batch_targets()
+        if not ids:
+            return
+        to_wav = config.convert_master_to_wav()
+        jobs = []
+        for bid in ids:
+            row = self.db.get_beat(bid)
+            if row is None or importer.is_missing(row):
+                continue
+            beat_name = self._beat_name(row)
+            master = self._master_path(row)
+            manifest = self._export_subdir("metadata") / f"{beat_name}.json"
+            placements = self._load_placements(row)
+            core_exports.update_manifest(str(manifest), {
+                "beat_name": beat_name, "bpm": row["bpm"], "key": row["key"],
+                "tag_times": sorted(round(p.position_sec, 3) for p in placements),
+                "clean_master": os.path.relpath(
+                    str(master), self._export_base()).replace("\\", "/"),
+            })
+            jobs.append({"name": row["filename"], "input": row["file_path"],
+                         "master": str(master), "manifest": str(manifest),
+                         "zip": str(self._export_subdir("packages") / f"{beat_name}.zip"),
+                         "to_wav": to_wav})
+        if not jobs:
+            self.statusBar().showMessage("No present beats selected.", 3500)
+            return
+
+        def fn(j):
+            core_exports.export_clean_master(j["input"], j["master"], to_wav=j["to_wav"])
+            return core_exports.build_buyer_package(j["master"], j["manifest"], j["zip"])
+
+        self._run_batch(jobs, fn, "Building packages", self._export_subdir("packages"))
+
+    def _run_batch(self, jobs, fn, label, folder) -> None:
+        if self._exporting:
+            return
+        self._set_exporting(True)
+        self._batch_ok = self._batch_fail = 0
+        self._batch_folder = str(folder)
+        self.progress.begin(label, len(jobs))
+        self.pool.start(BatchRunnable(jobs, fn, lambda j: j["name"], self.batch_signals))
+
+    def _on_batch_progress(self, done: int, total: int, name: str) -> None:
+        self.progress.update(done, total, f"{name}  ({done}/{total})")
+
+    def _on_batch_result(self, ok: bool, name: str, detail: str) -> None:
+        if ok:
+            self._batch_ok += 1
+            self.progress.log_line(f"✓ {name}")
+        else:
+            self._batch_fail += 1
+            self.progress.log_line(f"✗ {name}: {detail}")
+        self.progress.set_counts(self._batch_ok, self._batch_fail)
+
+    def _on_batch_finished(self, ok: int, fail: int) -> None:
+        self._set_exporting(False)
+        self.progress.end(f"Batch complete — {ok} ok, {fail} failed",
+                          folder=self._batch_folder)
 
     def _find_duplicates(self) -> None:
         items = [(b["id"], b["fingerprint"]) for b in self.db.list_beats()

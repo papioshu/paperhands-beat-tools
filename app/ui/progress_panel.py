@@ -8,6 +8,7 @@ completion. It only *displays* state — the actual work runs on worker threads.
 
 from __future__ import annotations
 
+import time
 from pathlib import Path
 from typing import Optional
 
@@ -36,6 +37,9 @@ class ProgressPanel(QFrame):
         self.status = QLabel("")
         self.status.setObjectName("AccentLime")
         top.addWidget(self.status, 1)
+        self.counts = QLabel("")
+        self.counts.setObjectName("SubHeading")
+        top.addWidget(self.counts)
         self.link = QLabel("")
         self.link.setTextFormat(Qt.RichText)
         self.link.setOpenExternalLinks(False)
@@ -69,17 +73,35 @@ class ProgressPanel(QFrame):
 
     def begin(self, verb: str, total: int = 1) -> None:
         self.status.setText(f"{verb}…")
+        self.counts.clear()
         self.link.clear()
         self.busy.setRange(0, 0)            # indeterminate = "working"
         self.total.setRange(0, max(1, total))
         self.total.setValue(0)
+        self._t0 = time.monotonic()
         self.show()
 
     def update(self, done: int, total: int, current_text: Optional[str] = None) -> None:
         self.total.setRange(0, max(1, total))
         self.total.setValue(min(done, total))
         if current_text:
-            self.status.setText(current_text)
+            text = current_text
+            if done > 0 and total > 1 and getattr(self, "_t0", None):
+                elapsed = time.monotonic() - self._t0
+                eta = elapsed / done * (total - done)
+                text = f"{current_text}  ·  ~{self._fmt_eta(eta)} left"
+            self.status.setText(text)
+
+    def set_counts(self, ok: int, fail: int) -> None:
+        parts = [f"✓ {ok}"]
+        if fail:
+            parts.append(f"✗ {fail}")
+        self.counts.setText("   ".join(parts))
+
+    @staticmethod
+    def _fmt_eta(seconds: float) -> str:
+        s = int(seconds)
+        return f"{s // 60}m{s % 60:02d}s" if s >= 60 else f"{s}s"
 
     def log_line(self, text: str) -> None:
         self.log.appendPlainText(text)
