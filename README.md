@@ -30,7 +30,8 @@ For every `.mp3` in `input/`:
 2. Places your tag at the start (optional) and **again every ~40s** (configurable),
    with optional random **jitter** so placements aren't robotic.
 3. **Rotates randomly** through every tag file in `tags/` (use one or many).
-4. **Ducks** the beat a few dB under each tag so the tag is clearly audible.
+4. Overlays each tag **without changing the beat volume** (ducking is off by
+   default; enable with `--duck-db` if you want the beat to dip under tags).
 5. **Normalizes** safely so the export never clips.
 6. Exports a **320 kbps** MP3 named like `Beat_140BPM_Fsharpmin_tagged.mp3`
    (BPM/key appended only if missing — never duplicated).
@@ -129,7 +130,7 @@ e.g. `set OPTIONS=--interval 35 --jitter 4 --before-drop`.
 | `--jitter` | `0` | Random ± wobble (s) on each interval spot |
 | `--start` / `--no-start` | `--start` | Place a tag at the very beginning |
 | `--before-drop` | off | Anchor first tag at the detected drop (experimental) |
-| `--duck-db` | `6` | dB the beat drops under each tag |
+| `--duck-db` | `0` | dB the beat drops under each tag (0 = no ducking) |
 | `--headroom-db` | `1` | Normalize peak target = −headroom dBFS |
 | `--bpm` | auto | Manual BPM (skips BPM detection) |
 | `--key` | auto | Manual key e.g. `F#min` (skips key detection) |

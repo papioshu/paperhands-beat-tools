@@ -60,8 +60,8 @@ def parse_args(argv=None) -> argparse.Namespace:
                         "instead of 0:00 (experimental; falls back to 0:00).")
 
     # Mixing
-    p.add_argument("--duck-db", type=float, default=6.0,
-                   help="dB to lower the beat under each tag.")
+    p.add_argument("--duck-db", type=float, default=0.0,
+                   help="dB to lower the beat under each tag (0 = no ducking).")
     p.add_argument("--headroom-db", type=float, default=1.0,
                    help="Normalize peak target = -headroom dBFS (clip safety).")
 

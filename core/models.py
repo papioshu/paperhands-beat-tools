@@ -60,7 +60,7 @@ class TaggingConfig:
     before_drop: bool = False           # anchor the first tag at the detected drop
 
     # Mixing
-    duck_db: float = 6.0                # how much to lower the beat under a tag
+    duck_db: float = 0.0                # beat volume reduction under a tag (0 = off)
     headroom_db: float = 1.0            # peak target = -headroom_db dBFS
 
     # Detection / naming

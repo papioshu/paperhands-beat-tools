@@ -15,7 +15,7 @@ def test_defaults_map_to_config():
     assert cfg.tag_at_start is True
     assert cfg.before_drop is False
     assert cfg.bitrate == "320k"
-    assert cfg.duck_db == 6.0
+    assert cfg.duck_db == 0.0          # ducking off by default (beat stays full)
     assert cfg.detect is True
 
 
