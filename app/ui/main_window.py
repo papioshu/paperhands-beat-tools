@@ -59,6 +59,10 @@ from app.workers import (
     ExportRunnable,
     ExportSignals,
     FunctionExportRunnable,
+    InstallRunnable,
+    InstallSignals,
+    StemRunnable,
+    StemSignals,
     UpdateChecker,
     WorkerSignals,
 )
@@ -68,6 +72,7 @@ from core import artwork as core_artwork
 from core import exports as core_exports
 from core import fingerprint as core_fingerprint
 from core import layers as core_layers
+from core import stems as core_stems
 from core import metadata as core_metadata
 from core import naming as core_naming
 from core import pipeline
@@ -133,6 +138,17 @@ class MainWindow(QMainWindow):
         self.batch_signals.finished.connect(self._on_batch_finished)
         self._batch_ok = self._batch_fail = 0
         self._batch_folder = None
+        # Stem separation
+        self.stem_engine = core_stems.get_engine("Demucs")
+        self.stem_signals = StemSignals()
+        self.stem_signals.done.connect(self._on_stem_done)
+        self.stem_signals.error.connect(self._on_stem_error)
+        self.install_progress_signals = InstallSignals()
+        self.install_progress_signals.line.connect(lambda s: self.progress.log_line(s))
+        self.install_progress_signals.finished.connect(self._on_install_finished)
+        self._stem_jobs = []
+        self._stem_total = self._stem_done = self._stem_ok = self._stem_fail = 0
+        self._install_then = None
 
         self.refresh_library()
         self._startup_scan()          # auto-pick-up new files from watched folders
@@ -162,6 +178,7 @@ class MainWindow(QMainWindow):
         batch_menu.addAction("Auto-Place Tags…", self._on_autoplace)
         batch_menu.addAction("Export Tagged Previews", self._batch_export_previews)
         batch_menu.addAction("Generate Buyer Packages", self._batch_buyer_packages)
+        batch_menu.addAction("Split Stems", self._split_stems)
         self.btn_batch.setMenu(batch_menu)
         self.btn_duplicates = QPushButton("Duplicates")
         tb.addWidget(self.btn_import)
@@ -615,6 +632,100 @@ class MainWindow(QMainWindow):
         self._set_exporting(False)
         self.progress.end(f"Batch complete — {ok} ok, {fail} failed",
                           folder=self._batch_folder)
+
+    # -- stem separation --------------------------------------------------
+
+    def _split_stems(self) -> None:
+        ids = self._selected_beat_ids()
+        if not ids and self._current_beat_id:
+            ids = [self._current_beat_id]
+        if not ids:
+            self.statusBar().showMessage("Select beats to split.", 3000)
+            return
+        if not self.stem_engine.available():
+            self._prompt_install_demucs(lambda: self._run_stem_split(ids))
+            return
+        self._run_stem_split(ids)
+
+    def _prompt_install_demucs(self, then) -> None:
+        box = QMessageBox(self)
+        box.setWindowTitle("Install stem separator")
+        box.setText("Demucs (stem separation) isn't installed.")
+        box.setInformativeText(
+            "Install it now? This downloads PyTorch + Demucs (~2 GB) and may take "
+            "several minutes. It runs in the background.")
+        box.setStandardButtons(QMessageBox.Yes | QMessageBox.No)
+        if box.exec() != QMessageBox.Yes:
+            return
+        cmd = self.stem_engine.install_command()
+        self._install_then = then
+        self._set_exporting(True)
+        self.progress.begin("Installing Demucs (downloading ~2 GB)", 1)
+        self.pool.start(InstallRunnable(cmd, self.install_progress_signals))
+
+    def _on_install_finished(self, ok: bool, message: str) -> None:
+        self._set_exporting(False)
+        if ok:
+            self.progress.end("Demucs installed")
+            then, self._install_then = self._install_then, None
+            if then:
+                then()
+        else:
+            self.progress.end("Install failed")
+            QMessageBox.warning(self, "Install failed",
+                                f"Could not install Demucs: {message}")
+            self._install_then = None
+
+    def _run_stem_split(self, ids: list) -> None:
+        if self._exporting:
+            return
+        base = self._export_subdir("stems")
+        jobs = []
+        for bid in ids:
+            row = self.db.get_beat(bid)
+            if row is None or importer.is_missing(row):
+                continue
+            out_dir = str(base / self._beat_name(row))
+            jobs.append((bid, row["file_path"], out_dir, row["filename"]))
+        if not jobs:
+            self.statusBar().showMessage("No present beats selected.", 3000)
+            return
+        self._stem_jobs = jobs
+        self._stem_total = len(jobs)
+        self._stem_done = self._stem_ok = self._stem_fail = 0
+        self._set_exporting(True)
+        self.progress.begin("Splitting stems", self._stem_total)
+        self._start_next_stem()
+
+    def _start_next_stem(self) -> None:
+        if not self._stem_jobs:
+            self._set_exporting(False)
+            self.progress.end(
+                f"Stems: {self._stem_ok} ok, {self._stem_fail} failed",
+                folder=str(self._export_subdir("stems")))
+            return
+        bid, inp, out_dir, name = self._stem_jobs.pop(0)
+        self.progress.update(
+            self._stem_done, self._stem_total,
+            f"Splitting stems {self._stem_done + 1} of {self._stem_total}: {name}")
+        self.pool.start(StemRunnable(bid, inp, out_dir, self.stem_engine, self.stem_signals))
+
+    def _on_stem_done(self, beat_id: int, stems: dict) -> None:
+        self.db.update_beat(beat_id, stems=json.dumps(stems))
+        row = self.db.get_beat(beat_id)
+        self._stem_ok += 1
+        self._stem_done += 1
+        self.progress.log_line(f"✓ {row['filename'] if row else beat_id}: "
+                               f"{len(stems)} stems")
+        self.progress.set_counts(self._stem_ok, self._stem_fail)
+        self._start_next_stem()
+
+    def _on_stem_error(self, beat_id: int, message: str) -> None:
+        self._stem_fail += 1
+        self._stem_done += 1
+        self.progress.log_line(f"✗ stem split: {message}")
+        self.progress.set_counts(self._stem_ok, self._stem_fail)
+        self._start_next_stem()
 
     def _find_duplicates(self) -> None:
         items = [(b["id"], b["fingerprint"]) for b in self.db.list_beats()

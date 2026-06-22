@@ -8,4 +8,10 @@ from .export_worker import (  # noqa: F401
     FunctionExportRunnable,
 )
 from .signals import WorkerSignals  # noqa: F401
+from .stem_worker import (  # noqa: F401
+    InstallRunnable,
+    InstallSignals,
+    StemRunnable,
+    StemSignals,
+)
 from .update_worker import UpdateChecker  # noqa: F401
