@@ -41,6 +41,7 @@ from PySide6.QtWidgets import (
 
 from app.db import Database
 from app.services import importer, renamer
+from app.ui.autoplace_dialog import AutoPlaceDialog
 from app.ui.batch_rename_dialog import BatchRenameDialog
 from app.ui.detail_panel import DetailPanel
 from app.ui.duplicates_dialog import DuplicatesDialog
@@ -699,18 +700,58 @@ class MainWindow(QMainWindow):
         if save:
             self._save_placements()
 
+    def _beat_context(self, row):
+        """(structure, drop, hook) for a beat row, for auto-placement."""
+        structure = self._load_json_list(row["structure"]) if row else []
+        drop = row["drop_sec"] if row else None
+        hook = ((row["hook_start"], row["hook_end"])
+                if row and row["hook_start"] is not None else None)
+        return structure, drop, hook
+
     def _on_autoplace(self) -> None:
-        if self._beat_duration_sec <= 0:
-            self.statusBar().showMessage("Analyze the beat first (no duration yet).", 3000)
-            return
         tags = self.tag_panel.all_tag_paths()
         if not tags:
-            self.statusBar().showMessage("No tags in the tag library.", 3000)
+            self.statusBar().showMessage("No enabled tags in the library.", 3000)
             return
-        self._placements = core_placement.compute_placements(
-            duration_sec=self._beat_duration_sec, tag_paths=tags, interval_sec=40.0,
-        )
-        self._refresh_markers(save=True)
+        selected = self._selected_beat_ids()
+        if len(selected) <= 1 and self._beat_duration_sec <= 0:
+            self.statusBar().showMessage("Analyze the beat first (no duration yet).", 3000)
+            return
+
+        row = self.db.get_beat(self._current_beat_id) if self._current_beat_id else None
+        structure, drop, hook = self._beat_context(row)
+        dlg = AutoPlaceDialog(tags, self._beat_duration_sec, structure, drop, hook,
+                              len(selected), self)
+        if not dlg.exec():
+            return
+
+        if len(selected) > 1:
+            self._batch_autoplace(dlg, selected)
+        else:
+            self._placements = dlg.compute_for(
+                self._beat_duration_sec, structure, drop, hook)
+            self._refresh_markers(save=True)
+
+    def _batch_autoplace(self, dlg, beat_ids: list) -> None:
+        self.progress.begin("Auto-placing", len(beat_ids))
+        done = applied = 0
+        for bid in beat_ids:
+            row = self.db.get_beat(bid)
+            done += 1
+            if row is None or not row["duration_sec"]:
+                self.progress.log_line(
+                    f"✗ {row['filename'] if row else bid}: not analyzed")
+            else:
+                structure, drop, hook = self._beat_context(row)
+                placements = dlg.compute_for(row["duration_sec"], structure, drop, hook)
+                self.db.update_beat(bid, placements=json.dumps(
+                    [{"pos": p.position_sec, "tag": p.tag_path} for p in placements]))
+                applied += 1
+                self.progress.log_line(f"✓ {row['filename']}: {len(placements)} tags")
+            self.progress.update(done, len(beat_ids),
+                                 f"Auto-placing {done} of {len(beat_ids)}")
+        self.progress.end(f"Auto-placed {applied} beat(s)")
+        self._on_selection()   # reload the current beat's (possibly updated) markers
 
     def _tag_at_drop(self) -> None:
         if self._drop_sec and self._beat_duration_sec > 0:

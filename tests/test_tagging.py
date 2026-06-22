@@ -121,11 +121,45 @@ def test_tag_at_drop_and_hook_place_at_detected_times(tmp_path):
     win.close()
 
 
-def test_autoplace_lays_down_interval_tags(tmp_path):
+def test_autoplace_dialog_computes_and_applies(tmp_path):
+    # Drive the auto-place dialog directly (no modal exec) and apply to the beat.
+    from app.ui.autoplace_dialog import AutoPlaceDialog
+
     win = _window_with_beat(tmp_path)
-    win.tag_panel.all_tag_paths = lambda: ["/tags/a.wav"]
-    win._on_autoplace()
+    dlg = AutoPlaceDialog(["/tags/a.wav"], 100.0, [], None, None, 1, win)
+    dlg.profile.setCurrentText("Custom")
+    dlg.mode.setCurrentText("fixed")
+    dlg.interval.setValue(40)
+    dlg.min_spacing.setValue(10)
+    win._placements = dlg.compute_for(100.0, [], None, None)
+    win._refresh_markers(save=True)
     assert [round(p.position_sec) for p in win._placements] == [0, 40, 80]
+    win.close()
+
+
+def test_batch_autoplace_applies_to_all_selected(tmp_path):
+    import json
+
+    from app.ui.autoplace_dialog import AutoPlaceDialog
+
+    win = _window_with_beat(tmp_path)            # "Night" 100s, analyzed
+    two = tmp_path / "Two.mp3"
+    two.write_bytes(b"\x00")
+    bid2 = win.db.add_beat(str(two), "Two.mp3")
+    win.db.update_beat(bid2, duration_sec=200.0, analysis_status="done")
+    win.refresh_library()
+
+    ids = [b["id"] for b in win.db.list_beats()]
+    dlg = AutoPlaceDialog(["/t/a.wav"], 100.0, [], None, None, len(ids), win)
+    dlg.profile.setCurrentText("Custom")
+    dlg.mode.setCurrentText("fixed")
+    dlg.interval.setValue(40)
+    dlg.min_spacing.setValue(10)
+    win._batch_autoplace(dlg, ids)
+
+    for bid in ids:
+        saved = json.loads(win.db.get_beat(bid)["placements"])
+        assert len(saved) >= 2                   # each beat got interval placements
     win.close()
 
 
