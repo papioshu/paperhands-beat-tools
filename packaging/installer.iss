@@ -2,10 +2,10 @@
 ; Build:  ISCC.exe packaging\installer.iss   (after the PyInstaller build)
 ; Produces packaging\Output\PaperhandsBeatTools-Setup-<version>.exe
 
-#define MyAppName "Paperhand's Beat Tools"
+#define MyAppName "Paperhand Beat Manager"
 #define MyAppExeName "PaperhandsBeatTools.exe"
 #define MyAppVersion "1.0.0"
-#define MyAppPublisher "papioshu"
+#define MyAppPublisher "Paperhand"
 #define MyAppURL "https://github.com/papioshu/paperhands-beat-tools"
 
 [Setup]
@@ -25,6 +25,7 @@ Compression=lzma2
 SolidCompression=yes
 ArchitecturesInstallIn64BitMode=x64compatible
 WizardStyle=modern
+SetupIconFile=..\assets\icon.ico
 UninstallDisplayIcon={app}\{#MyAppExeName}
 
 [Languages]

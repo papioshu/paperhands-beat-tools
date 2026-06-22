@@ -17,6 +17,7 @@ from pathlib import Path
 from typing import Optional
 
 from PySide6.QtCore import Qt, QThreadPool
+from PySide6.QtGui import QIcon, QPixmap
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QFileDialog,
@@ -44,6 +45,7 @@ from app.db import Database
 from app.services import importer, renamer
 from app.ui.autoplace_dialog import AutoPlaceDialog
 from app.ui.batch_rename_dialog import BatchRenameDialog
+from app.branding import APP_NAME, icon_path, logo_path
 from app.ui.collapsible import CollapsibleSection
 from app.ui.daw_window import DawModeWindow
 from app.ui.detail_panel import DetailPanel
@@ -89,7 +91,8 @@ class MainWindow(QMainWindow):
     def __init__(self, db_path: str = "library.db"):
         super().__init__()
         self.db = Database(db_path)
-        self.setWindowTitle("Paperhand's Beat Tools")
+        self.setWindowTitle(APP_NAME)
+        self.setWindowIcon(QIcon(icon_path()))
         self.resize(1180, 720)
 
         # Background analysis
@@ -169,6 +172,17 @@ class MainWindow(QMainWindow):
         tb = QToolBar()
         tb.setMovable(False)
         self.addToolBar(tb)
+
+        logo = QLabel()
+        pm = QPixmap(logo_path())
+        if not pm.isNull():
+            logo.setPixmap(pm.scaledToHeight(26, Qt.SmoothTransformation))
+            logo.setContentsMargins(2, 0, 4, 0)
+            tb.addWidget(logo)
+        brand = QLabel(APP_NAME)
+        brand.setObjectName("Heading")
+        brand.setContentsMargins(0, 0, 10, 0)
+        tb.addWidget(brand)
 
         self.btn_import = QPushButton("Import Beats")
         self.btn_import.setObjectName("Primary")
@@ -556,7 +570,7 @@ class MainWindow(QMainWindow):
             if not placements:
                 continue
             beat_name = self._beat_name(row)
-            out = self._export_subdir("previews") / f"{beat_name}_TAGGED.mp3"
+            out = self._export_subdir("previews") / f"{beat_name}_tagged.mp3"
             art = row["artwork_path"]
             jobs.append({
                 "name": row["filename"], "input": row["file_path"],
@@ -601,7 +615,7 @@ class MainWindow(QMainWindow):
             })
             jobs.append({"name": row["filename"], "input": row["file_path"],
                          "master": str(master), "manifest": str(manifest),
-                         "zip": str(self._export_subdir("packages") / f"{beat_name}.zip"),
+                         "zip": str(self._export_subdir("buyer_packages") / f"{beat_name}.zip"),
                          "to_wav": to_wav})
         if not jobs:
             self.statusBar().showMessage("No present beats selected.", 3500)
@@ -611,7 +625,7 @@ class MainWindow(QMainWindow):
             core_exports.export_clean_master(j["input"], j["master"], to_wav=j["to_wav"])
             return core_exports.build_buyer_package(j["master"], j["manifest"], j["zip"])
 
-        self._run_batch(jobs, fn, "Building packages", self._export_subdir("packages"))
+        self._run_batch(jobs, fn, "Building packages", self._export_subdir("buyer_packages"))
 
     def _run_batch(self, jobs, fn, label, folder) -> None:
         if self._exporting:
@@ -1160,7 +1174,7 @@ class MainWindow(QMainWindow):
             self.statusBar().showMessage("Place at least one tag first.", 3000)
             return
         crop = self.waveform.crop_seconds(self._beat_duration_sec)
-        out_path = self._export_subdir("previews") / f"{self._beat_name(row)}_TAGGED.mp3"
+        out_path = self._export_subdir("previews") / f"{self._beat_name(row)}_tagged.mp3"
         tags = core_metadata.build_id3_tags(
             config.producer(), title=row["title"] or Path(row["filename"]).stem,
             genre=row["genre"], bpm=row["bpm"], key=row["key"], mood=row["mood"],
@@ -1185,7 +1199,7 @@ class MainWindow(QMainWindow):
     def _master_path(self, row) -> Path:
         to_wav = config.convert_master_to_wav()
         ext = ".wav" if to_wav else (Path(row["filename"]).suffix or ".wav")
-        return self._export_subdir("masters") / f"{self._beat_name(row)}{ext}"
+        return self._export_subdir("masters") / f"{self._beat_name(row)}_clean{ext}"
 
     def _export_clean_master(self) -> None:
         row = self._export_row()
@@ -1206,7 +1220,7 @@ class MainWindow(QMainWindow):
         if not self._placements:
             self.statusBar().showMessage("Place at least one tag first.", 3000)
             return
-        out_path = self._export_subdir("tag_stems") / f"{self._beat_name(row)}_TAGONLY.wav"
+        out_path = self._export_subdir("tag_stems") / f"{self._beat_name(row)}_tagonly.wav"
         placements = list(self._placements)
         src = self._current_path
         self._update_manifest(row, tag_stem=str(out_path))
@@ -1221,7 +1235,7 @@ class MainWindow(QMainWindow):
         beat_name = self._beat_name(row)
         master_path = self._master_path(row)
         manifest_path = self._export_subdir("metadata") / f"{beat_name}.json"
-        zip_path = self._export_subdir("packages") / f"{beat_name}.zip"
+        zip_path = self._export_subdir("buyer_packages") / f"{beat_name}.zip"
         src = self._current_path
         to_wav = config.convert_master_to_wav()
         # Ensure the clean master + manifest exist before zipping.

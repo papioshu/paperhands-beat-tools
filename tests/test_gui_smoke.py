@@ -37,7 +37,7 @@ def test_main_window_constructs_and_shows(tmp_path):
     win = MainWindow(db_path=str(tmp_path / "lib.db"))
     win.show()
     app.processEvents()
-    assert win.windowTitle() == "Paperhand's Beat Tools"
+    assert win.windowTitle() == "Paperhand Beat Manager"
     assert win.table.columnCount() == 6
     win.close()
 

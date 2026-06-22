@@ -394,7 +394,7 @@ class DawModeWindow(QMainWindow):
         session.save_session(self._session_path, self._session)
 
     def _export_tagged_preview(self) -> None:
-        out = self._out_base() / "previews" / f"{self._beat_name()}_TAGGED.mp3"
+        out = self._out_base() / "previews" / f"{self._beat_name()}_tagged.mp3"
         out.parent.mkdir(parents=True, exist_ok=True)
         placements, layers = list(self._placements), dict(self._layers)
         src = self.row["file_path"]
@@ -409,7 +409,7 @@ class DawModeWindow(QMainWindow):
         self._run(lambda: mixer.mix_stem_tracks(tracks, str(out)), "Exporting mix", "Current Mix WAV")
 
     def _export_clean_master(self) -> None:
-        out = self._out_base() / "masters" / f"{self._beat_name()}.wav"
+        out = self._out_base() / "masters" / f"{self._beat_name()}_clean.wav"
         out.parent.mkdir(parents=True, exist_ok=True)
         src = self.row["file_path"]
         self._run(lambda: core_exports.export_clean_master(src, str(out), to_wav=True),
@@ -431,9 +431,9 @@ class DawModeWindow(QMainWindow):
 
     def _export_buyer_package(self) -> None:
         beat_name = self._beat_name()
-        master = self._out_base() / "masters" / f"{beat_name}.wav"
+        master = self._out_base() / "masters" / f"{beat_name}_clean.wav"
         manifest = self._out_base() / "metadata" / f"{beat_name}.json"
-        zip_path = self._out_base() / "packages" / f"{beat_name}.zip"
+        zip_path = self._out_base() / "buyer_packages" / f"{beat_name}.zip"
         src = self.row["file_path"]
         stems = dict(self.stems)
         bpm, key = self.row["bpm"], self.row["key"]

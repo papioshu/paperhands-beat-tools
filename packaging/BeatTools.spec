@@ -45,6 +45,12 @@ for exe_name in ("ffmpeg.exe", "ffprobe.exe"):
 hiddenimports += ["app", "core", "sklearn.utils._typedefs",
                   "sklearn.neighbors._partition_nodes", "scipy.special.cython_special"]
 
+# Branding assets (icon/logo) for the window + header.
+for _asset in ("icon.ico", "icon.png", "icon.svg"):
+    _p = os.path.join(ROOT, "assets", _asset)
+    if os.path.exists(_p):
+        datas.append((_p, "assets"))
+
 a = Analysis(
     [os.path.join(ROOT, "app", "main.py")],
     pathex=[ROOT],
@@ -67,6 +73,7 @@ exe = EXE(
     strip=False,
     upx=False,
     console=False,
+    icon=os.path.join(ROOT, "assets", "icon.ico"),
 )
 coll = COLLECT(
     exe,
