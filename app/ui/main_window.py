@@ -44,6 +44,7 @@ from app.db import Database
 from app.services import importer, renamer
 from app.ui.autoplace_dialog import AutoPlaceDialog
 from app.ui.batch_rename_dialog import BatchRenameDialog
+from app.ui.collapsible import CollapsibleSection
 from app.ui.detail_panel import DetailPanel
 from app.ui.duplicates_dialog import DuplicatesDialog
 from app.ui.layers_panel import LayersPanel
@@ -257,9 +258,9 @@ class MainWindow(QMainWindow):
         self.layers_panel.layer_changed.connect(self._on_layer_changed)
 
         right = QSplitter(Qt.Vertical)
-        right.addWidget(self.detail)
-        right.addWidget(self.tag_panel)
-        right.addWidget(self.layers_panel)
+        right.addWidget(CollapsibleSection("Beat details", self.detail))
+        right.addWidget(CollapsibleSection("Tag library", self.tag_panel))
+        right.addWidget(CollapsibleSection("Layers", self.layers_panel))
         right.setStretchFactor(0, 3)
         right.setStretchFactor(1, 2)
         right.setStretchFactor(2, 1)

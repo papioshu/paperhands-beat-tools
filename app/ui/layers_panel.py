@@ -31,9 +31,6 @@ class LayersPanel(QFrame):
         self._building = False
 
         outer = QVBoxLayout(self)
-        heading = QLabel("Layers")
-        heading.setObjectName("Heading")
-        outer.addWidget(heading)
         self.empty = QLabel("Place tags to see their layers.")
         self.empty.setObjectName("SubHeading")
         outer.addWidget(self.empty)

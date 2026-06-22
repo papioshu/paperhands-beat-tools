@@ -50,9 +50,6 @@ class TagLibraryPanel(QFrame):
         self._building = False
 
         layout = QVBoxLayout(self)
-        heading = QLabel("Tag library")
-        heading.setObjectName("Heading")
-        layout.addWidget(heading)
 
         folder_row = QHBoxLayout()
         self.folder_label = QLabel("")

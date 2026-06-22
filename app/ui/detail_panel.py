@@ -54,10 +54,6 @@ class DetailPanel(QFrame):
 
         outer = QVBoxLayout(self)
 
-        self.heading = QLabel("Beat details")
-        self.heading.setObjectName("Heading")
-        outer.addWidget(self.heading)
-
         self.analysis = QLabel("Select a beat to edit.")
         self.analysis.setObjectName("AccentLime")
         self.analysis.setWordWrap(True)
