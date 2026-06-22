@@ -9,6 +9,7 @@ runs the new installer). Network failures degrade quietly.
 from __future__ import annotations
 
 import json
+import shutil
 import urllib.request
 from typing import Tuple
 
@@ -39,7 +40,38 @@ def fetch_latest_release(owner: str, repo: str, timeout: float = 5.0) -> dict:
         "tag": data.get("tag_name", ""),
         "url": data.get("html_url", ""),
         "name": data.get("name", ""),
+        "installer_url": _pick_installer(data.get("assets", [])),
     }
+
+
+def _pick_installer(assets: list) -> str:
+    """Prefer a setup/installer .exe asset; fall back to any .exe."""
+    exes = [a for a in assets if a.get("name", "").lower().endswith(".exe")]
+    for a in exes:
+        n = a.get("name", "").lower()
+        if "setup" in n or "install" in n:
+            return a.get("browser_download_url", "")
+    return exes[0].get("browser_download_url", "") if exes else ""
+
+
+def latest_installer_url(repo: str, timeout: float = 5.0) -> str:
+    """The latest release's installer download URL, or '' if none/unreachable."""
+    if not repo or "/" not in repo:
+        return ""
+    owner, name = repo.split("/", 1)
+    try:
+        return fetch_latest_release(owner.strip(), name.strip(), timeout).get(
+            "installer_url", "")
+    except Exception:  # noqa: BLE001
+        return ""
+
+
+def download(url: str, dest: str, timeout: float = 60.0) -> str:
+    """Download ``url`` to ``dest`` (streamed). Returns dest."""
+    req = urllib.request.Request(url, headers={"User-Agent": "PaperhandBeatTools"})
+    with urllib.request.urlopen(req, timeout=timeout) as resp, open(dest, "wb") as fh:
+        shutil.copyfileobj(resp, fh)
+    return dest
 
 
 def check_for_update(current: str, repo: str, timeout: float = 5.0) -> Tuple[bool, str, str, str]:

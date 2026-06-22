@@ -1,14 +1,12 @@
 """Tag library + placement controls.
 
-Lists the producer tags in your tags folder. Pick one, toggle "Place on click",
-then click anywhere on the waveform to drop that tag there (click a marker again
-to remove it). Auto-place lays down default interval placements you can tweak,
-and Export renders the tagged beat through the shared core engine.
+The tag library is DB-backed: tag files are grouped by category, each can be
+enabled/disabled (checkbox), favorited (★), previewed, and selected as the active
+tag to place. Folder changes re-sync new files into the library.
 """
 
 from __future__ import annotations
 
-from pathlib import Path
 from typing import Optional
 
 from PySide6.QtCore import Qt, Signal
@@ -16,20 +14,24 @@ from PySide6.QtWidgets import (
     QFileDialog,
     QFrame,
     QHBoxLayout,
+    QInputDialog,
     QLabel,
-    QListWidget,
-    QListWidgetItem,
     QPushButton,
+    QTreeWidget,
+    QTreeWidgetItem,
     QVBoxLayout,
 )
 
 from app import config
-from app.services.importer import AUDIO_EXTS
+from app.services import tag_library
+
+_PATH_ROLE = Qt.UserRole
+_ID_ROLE = Qt.UserRole + 1
 
 
 class TagLibraryPanel(QFrame):
     active_tag_changed = Signal(str)     # path ("" if none)
-    preview_tag_requested = Signal()     # audition the selected tag
+    preview_tag_requested = Signal()
     place_mode_changed = Signal(bool)
     crop_mode_changed = Signal(bool)
     autoplace_requested = Signal()
@@ -41,9 +43,11 @@ class TagLibraryPanel(QFrame):
     export_tag_stem_requested = Signal()
     export_buyer_package_requested = Signal()
 
-    def __init__(self):
+    def __init__(self, db):
         super().__init__()
+        self.db = db
         self.setObjectName("Panel")
+        self._building = False
 
         layout = QVBoxLayout(self)
         heading = QLabel("Tag library")
@@ -60,15 +64,19 @@ class TagLibraryPanel(QFrame):
         folder_row.addWidget(self.btn_folder)
         layout.addLayout(folder_row)
 
-        self.list = QListWidget()
-        self.list.setMaximumHeight(140)
-        layout.addWidget(self.list)
+        self.tree = QTreeWidget()
+        self.tree.setHeaderHidden(True)
+        self.tree.setMaximumHeight(170)
+        layout.addWidget(self.tree)
 
-        self.btn_preview = QPushButton("▶ Preview tag")
-        layout.addWidget(self.btn_preview)
-        self.btn_preview.clicked.connect(self.preview_tag_requested)
-        # Double-clicking a tag also auditions it.
-        self.list.itemDoubleClicked.connect(lambda _it: self.preview_tag_requested.emit())
+        tag_btns = QHBoxLayout()
+        self.btn_preview = QPushButton("▶ Preview")
+        self.btn_favorite = QPushButton("★ Favorite")
+        self.btn_category = QPushButton("Category…")
+        tag_btns.addWidget(self.btn_preview)
+        tag_btns.addWidget(self.btn_favorite)
+        tag_btns.addWidget(self.btn_category)
+        layout.addLayout(tag_btns)
 
         mode_row = QHBoxLayout()
         self.btn_place = QPushButton("Place on click")
@@ -117,7 +125,12 @@ class TagLibraryPanel(QFrame):
 
         # wiring
         self.btn_folder.clicked.connect(self._choose_folder)
-        self.list.currentItemChanged.connect(self._on_tag_changed)
+        self.btn_preview.clicked.connect(self.preview_tag_requested)
+        self.btn_favorite.clicked.connect(self._toggle_favorite)
+        self.btn_category.clicked.connect(self._set_category)
+        self.tree.currentItemChanged.connect(self._on_tag_changed)
+        self.tree.itemChanged.connect(self._on_item_changed)
+        self.tree.itemDoubleClicked.connect(lambda *_: self.preview_tag_requested.emit())
         self.btn_place.toggled.connect(self._on_place_toggled)
         self.btn_crop.toggled.connect(self._on_crop_toggled)
         self.btn_auto.clicked.connect(self.autoplace_requested)
@@ -136,25 +149,42 @@ class TagLibraryPanel(QFrame):
     def refresh_tags(self) -> None:
         folder = config.tags_folder()
         self.folder_label.setText(folder)
-        self.list.clear()
-        p = Path(folder)
-        if p.is_dir():
-            for f in sorted(p.iterdir()):
-                if f.is_file() and f.suffix.lower() in AUDIO_EXTS:
-                    item = QListWidgetItem(f.name)
-                    item.setData(Qt.UserRole, str(f.resolve()))
-                    self.list.addItem(item)
-        if self.list.count():
-            self.list.setCurrentRow(0)
+        tag_library.sync_folder(self.db, folder)
+
+        self._building = True
+        self.tree.clear()
+        groups: dict = {}
+        first_child = None
+        for row in self.db.list_tag_files():
+            cat = row["category"] or "Uncategorized"
+            if cat not in groups:
+                parent = QTreeWidgetItem([cat])
+                parent.setFlags(parent.flags() & ~Qt.ItemIsSelectable)
+                self.tree.addTopLevelItem(parent)
+                parent.setExpanded(True)
+                groups[cat] = parent
+            label = ("★ " if row["favorite"] else "") + row["name"]
+            child = QTreeWidgetItem([label])
+            child.setData(0, _PATH_ROLE, row["path"])
+            child.setData(0, _ID_ROLE, row["id"])
+            child.setFlags(child.flags() | Qt.ItemIsUserCheckable)
+            child.setCheckState(0, Qt.Checked if row["enabled"] else Qt.Unchecked)
+            groups[cat].addChild(child)
+            first_child = first_child or child
+        self._building = False
+
+        if first_child is not None:
+            self.tree.setCurrentItem(first_child)
         else:
             self.active_tag_changed.emit("")
 
     def active_tag(self) -> Optional[str]:
-        item = self.list.currentItem()
-        return item.data(Qt.UserRole) if item else None
+        item = self.tree.currentItem()
+        return item.data(0, _PATH_ROLE) if item else None
 
     def all_tag_paths(self) -> list:
-        return [self.list.item(i).data(Qt.UserRole) for i in range(self.list.count())]
+        """Enabled tag paths (used for auto-place rotation)."""
+        return [r["path"] for r in self.db.list_tag_files(enabled_only=True)]
 
     def set_placement_count(self, n: int) -> None:
         self.count_label.setText(f"{n} tag{'s' if n != 1 else ''} placed")
@@ -171,9 +201,13 @@ class TagLibraryPanel(QFrame):
 
     # -- internals ---------------------------------------------------------
 
+    def _current_tag_id(self) -> Optional[int]:
+        item = self.tree.currentItem()
+        return item.data(0, _ID_ROLE) if item else None
+
     def _on_place_toggled(self, on: bool) -> None:
         if on and self.btn_crop.isChecked():
-            self.btn_crop.setChecked(False)  # mutually exclusive
+            self.btn_crop.setChecked(False)
         self.place_mode_changed.emit(on)
 
     def _on_crop_toggled(self, on: bool) -> None:
@@ -188,4 +222,31 @@ class TagLibraryPanel(QFrame):
             self.refresh_tags()
 
     def _on_tag_changed(self, current, _previous) -> None:
-        self.active_tag_changed.emit(current.data(Qt.UserRole) if current else "")
+        path = current.data(0, _PATH_ROLE) if current else None
+        self.active_tag_changed.emit(path or "")
+
+    def _on_item_changed(self, item, _column) -> None:
+        if self._building:
+            return
+        tid = item.data(0, _ID_ROLE)
+        if tid is not None:  # a tag row's checkbox toggled -> enable/disable
+            self.db.update_tag_file(tid, enabled=1 if item.checkState(0) == Qt.Checked else 0)
+
+    def _toggle_favorite(self) -> None:
+        tid = self._current_tag_id()
+        if tid is None:
+            return
+        row = self.db.get_tag_file(tid)
+        self.db.update_tag_file(tid, favorite=0 if row["favorite"] else 1)
+        self.refresh_tags()
+
+    def _set_category(self) -> None:
+        tid = self._current_tag_id()
+        if tid is None:
+            return
+        row = self.db.get_tag_file(tid)
+        text, ok = QInputDialog.getText(
+            self, "Set category", "Category:", text=row["category"] or "")
+        if ok:
+            self.db.update_tag_file(tid, category=text.strip() or "Uncategorized")
+            self.refresh_tags()

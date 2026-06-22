@@ -6,6 +6,13 @@ venv/
 *.egg-info/
 .pytest_cache/
 
+# PyInstaller / installer build artifacts
+build/
+dist/
+packaging/build.log
+packaging/Output/
+*.spec.bak
+
 # Working audio folders — keep the folders, ignore their contents
 input/*
 tags/*

@@ -57,7 +57,7 @@ from app.workers import (
     UpdateChecker,
     WorkerSignals,
 )
-from app import config
+from app import config, updater
 from app.version import __version__
 from core import artwork as core_artwork
 from core import exports as core_exports
@@ -117,6 +117,9 @@ class MainWindow(QMainWindow):
         self.update_checker = UpdateChecker()
         self.update_checker.checked.connect(self._on_update_checked)
         self._manual_update_check = False
+        self.install_signals = ExportSignals()
+        self.install_signals.done.connect(self._on_installer_ready)
+        self.install_signals.error.connect(self._on_installer_error)
 
         self.refresh_library()
         self._startup_scan()          # auto-pick-up new files from watched folders
@@ -197,7 +200,7 @@ class MainWindow(QMainWindow):
         self.detail.set_artwork_requested.connect(self._set_artwork)
         self.detail.generate_artwork_requested.connect(self._generate_artwork)
 
-        self.tag_panel = TagLibraryPanel()
+        self.tag_panel = TagLibraryPanel(self.db)
         self.tag_panel.active_tag_changed.connect(self._on_active_tag)
         self.tag_panel.preview_tag_requested.connect(self._preview_active_tag)
         self.tag_panel.place_mode_changed.connect(self._on_place_mode)
@@ -1013,9 +1016,15 @@ class MainWindow(QMainWindow):
             box = QMessageBox(self)
             box.setWindowTitle("Update available")
             box.setText(f"A new version ({version}) is available.")
-            box.setInformativeText("Open the release page to download it?")
-            box.setStandardButtons(QMessageBox.Open | QMessageBox.Cancel)
-            if box.exec() == QMessageBox.Open:
+            box.setInformativeText("Download and install it now?")
+            btn_install = box.addButton("Download && Install", QMessageBox.AcceptRole)
+            btn_page = box.addButton("Open page", QMessageBox.ActionRole)
+            box.addButton("Later", QMessageBox.RejectRole)
+            box.exec()
+            clicked = box.clickedButton()
+            if clicked is btn_install:
+                self._download_and_install(config.update_repo())
+            elif clicked is btn_page:
                 QDesktopServices.openUrl(QUrl(url))
         elif self._manual_update_check:
             if error:
@@ -1024,6 +1033,34 @@ class MainWindow(QMainWindow):
                 QMessageBox.information(self, "Updates",
                                         f"You're on the latest version ({__version__}).")
         self._manual_update_check = False
+
+    def _download_and_install(self, repo: str) -> None:
+        import tempfile
+
+        dest = str(Path(tempfile.gettempdir()) / "PaperhandsBeatTools-setup.exe")
+        self.progress.begin("Downloading update", 1)
+
+        def work():
+            url = updater.latest_installer_url(repo)
+            if not url:
+                raise RuntimeError("The latest release has no installer (.exe) asset.")
+            return updater.download(url, dest)
+
+        self.pool.start(FunctionExportRunnable(work, self.install_signals))
+
+    def _on_installer_ready(self, path: str) -> None:
+        self.progress.end("Downloaded — launching installer…")
+        try:
+            os.startfile(path)  # noqa: S606 - launch the trusted, just-downloaded installer
+        except Exception as exc:  # noqa: BLE001
+            QMessageBox.warning(self, "Update", f"Couldn't launch installer: {exc}")
+            return
+        from PySide6.QtWidgets import QApplication
+        QApplication.instance().quit()   # close so the installer can replace files
+
+    def _on_installer_error(self, message: str) -> None:
+        self.progress.end("Update download failed")
+        QMessageBox.warning(self, "Update", message)
 
     def closeEvent(self, event):  # noqa: N802 - Qt override
         self.db.close()

@@ -75,6 +75,16 @@ CREATE INDEX IF NOT EXISTS idx_beats_bpm   ON beats(bpm);
 CREATE INDEX IF NOT EXISTS idx_beats_key   ON beats(key);
 CREATE INDEX IF NOT EXISTS idx_beats_genre ON beats(genre);
 CREATE INDEX IF NOT EXISTS idx_beats_mood  ON beats(mood);
+
+-- Producer tag files (the audio overlays), with library metadata.
+CREATE TABLE IF NOT EXISTS producer_tags (
+    id        INTEGER PRIMARY KEY,
+    path      TEXT UNIQUE NOT NULL,
+    name      TEXT NOT NULL,
+    category  TEXT DEFAULT 'Uncategorized',
+    enabled   INTEGER DEFAULT 1,
+    favorite  INTEGER DEFAULT 0
+);
 """
 
 
@@ -235,3 +245,57 @@ class Database:
     def all_tag_names(self) -> List[str]:
         rows = self.conn.execute("SELECT name FROM tags ORDER BY name").fetchall()
         return [r["name"] for r in rows]
+
+    # -- producer tag files (the audio overlays) ---------------------------
+
+    def add_tag_file(self, path: str, name: str, category: str = "Uncategorized") -> int:
+        existing = self.conn.execute(
+            "SELECT id FROM producer_tags WHERE path = ?", (path,)).fetchone()
+        if existing:
+            return existing["id"]
+        cur = self.conn.execute(
+            "INSERT INTO producer_tags (path, name, category) VALUES (?, ?, ?)",
+            (path, name, category))
+        self.conn.commit()
+        return cur.lastrowid
+
+    def list_tag_files(self, enabled_only: bool = False, category: str = None,
+                       favorites_only: bool = False) -> List[sqlite3.Row]:
+        sql = "SELECT * FROM producer_tags"
+        where, params = [], []
+        if enabled_only:
+            where.append("enabled = 1")
+        if favorites_only:
+            where.append("favorite = 1")
+        if category:
+            where.append("category = ?")
+            params.append(category)
+        if where:
+            sql += " WHERE " + " AND ".join(where)
+        sql += " ORDER BY category, favorite DESC, name COLLATE NOCASE"
+        return self.conn.execute(sql, params).fetchall()
+
+    def get_tag_file(self, tag_id: int) -> Optional[sqlite3.Row]:
+        return self.conn.execute(
+            "SELECT * FROM producer_tags WHERE id = ?", (tag_id,)).fetchone()
+
+    def update_tag_file(self, tag_id: int, **fields) -> None:
+        allowed = {"name", "category", "enabled", "favorite"}
+        cols = {k: v for k, v in fields.items() if k in allowed}
+        if not cols:
+            return
+        assignments = ", ".join(f"{k} = ?" for k in cols)
+        self.conn.execute(
+            f"UPDATE producer_tags SET {assignments} WHERE id = ?",
+            (*cols.values(), tag_id))
+        self.conn.commit()
+
+    def remove_tag_file(self, tag_id: int) -> None:
+        self.conn.execute("DELETE FROM producer_tags WHERE id = ?", (tag_id,))
+        self.conn.commit()
+
+    def tag_categories(self) -> List[str]:
+        rows = self.conn.execute(
+            "SELECT DISTINCT category FROM producer_tags "
+            "WHERE category IS NOT NULL AND category != '' ORDER BY category").fetchall()
+        return [r["category"] for r in rows]
