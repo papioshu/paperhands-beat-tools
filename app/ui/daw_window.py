@@ -51,10 +51,11 @@ STEM_COLORS = {
 class TrackRow(QFrame):
     """One stem track: color + name + M/S + volume + pan + waveform."""
 
-    def __init__(self, track: dict, on_change=None):
+    def __init__(self, track: dict, on_change=None, on_seek=None):
         super().__init__()
         self.track = track
         self._on_change = on_change
+        self._on_seek = on_seek
         self.setObjectName("Panel")
         h = QHBoxLayout(self)
         h.setContentsMargins(6, 2, 6, 2)
@@ -66,14 +67,17 @@ class TrackRow(QFrame):
 
         name = QLabel(track["name"])
         name.setFixedWidth(90)
+        name.setToolTip(f"{track['name']} stem")
         h.addWidget(name)
 
         self.mute = QPushButton("M")
         self.mute.setCheckable(True)
         self.mute.setFixedWidth(26)
+        self.mute.setToolTip("Mute — silence this stem in the mix and exports")
         self.solo = QPushButton("S")
         self.solo.setCheckable(True)
         self.solo.setFixedWidth(26)
+        self.solo.setToolTip("Solo — play only the soloed stems")
         h.addWidget(self.mute)
         h.addWidget(self.solo)
 
@@ -81,15 +85,21 @@ class TrackRow(QFrame):
         self.vol.setRange(-24, 6)
         self.vol.setValue(0)
         self.vol.setFixedWidth(80)
+        self.vol.setToolTip("Volume (dB)")
         h.addWidget(self.vol)
         self.pan = QSlider(Qt.Horizontal)
         self.pan.setRange(-100, 100)
         self.pan.setValue(0)
         self.pan.setFixedWidth(60)
+        self.pan.setToolTip("Pan (left ◄ ► right)")
         h.addWidget(self.pan)
 
         self.wave = WaveformWidget()
         self.wave.setMinimumHeight(36)
+        self.wave.set_mode("seek")
+        self.wave.setToolTip("Click to scrub the transport to that position")
+        if on_seek:
+            self.wave.seek_requested.connect(on_seek)
         h.addWidget(self.wave, 1)
 
         self.mute.toggled.connect(self._sync)
@@ -142,6 +152,7 @@ class DawModeWindow(QMainWindow):
         self.row = db.get_beat(beat_id)
         self.stems = json.loads(self.row["stems"] or "{}")
         self._duration_ms = 0
+        self._pending_seek = None
         self._placements = self._load_placements()
         self._layers = json.loads(self.row["layers"] or "{}")
 
@@ -200,10 +211,14 @@ class DawModeWindow(QMainWindow):
         bar = QHBoxLayout()
         self.btn_play = QPushButton("Play Mix")
         self.btn_play.setObjectName("Accent")
+        self.btn_play.setToolTip("Render the current stem mix and play it")
         self.btn_stop = QPushButton("Stop")
+        self.btn_stop.setToolTip("Stop playback")
         self.btn_loop = QPushButton("Loop")
         self.btn_loop.setCheckable(True)
+        self.btn_loop.setToolTip("Loop playback")
         self.seek = QSlider(Qt.Horizontal)
+        self.seek.setToolTip("Playback position — drag to seek")
         self.time = QLabel("0:00 / 0:00")
         bar.addWidget(self.btn_play)
         bar.addWidget(self.btn_stop)
@@ -221,7 +236,8 @@ class DawModeWindow(QMainWindow):
                                "color": STEM_COLORS.get(stem, "#9AA0AB"),
                                "mute": False, "solo": False,
                                "volume_db": 0.0, "pan": 0.0, "enabled": True},
-                              on_change=self._save_session)
+                              on_change=self._save_session,
+                              on_seek=self._seek_fraction)
                 self._rows.append(tr)
                 tracks_box.addWidget(tr)
         scroll = QScrollArea()
@@ -245,7 +261,9 @@ class DawModeWindow(QMainWindow):
 
         controls = QHBoxLayout()
         self.btn_clear = QPushButton("Clear tags")
+        self.btn_clear.setToolTip("Remove all tag markers from the timeline")
         self.btn_export = QPushButton("Export ▾")
+        self.btn_export.setToolTip("Export — you choose what and where; nothing exports on its own")
         export_menu = QMenu(self.btn_export)
         export_menu.addAction("Tagged Preview MP3", self._export_tagged_preview)
         export_menu.addAction("Current Mix WAV", self._export_current_mix)
@@ -350,10 +368,26 @@ class DawModeWindow(QMainWindow):
         from PySide6.QtCore import QThreadPool
         QThreadPool.globalInstance().start(runnable)
 
+    def _seek_fraction(self, fraction: float) -> None:
+        """Click on a stem waveform -> scrub the transport to that position.
+
+        If no mix is rendered yet, render it and seek there once it loads.
+        """
+        if self._duration_ms > 0:
+            ms = int(fraction * self._duration_ms)
+            self.player.set_position(ms)
+            self.seek.setValue(ms)
+        else:
+            self._pending_seek = fraction
+            self._play_mix()
+
     def _on_mix_ready(self, path: str) -> None:
         self.status.setText("Playing mix")
         self.player.load(path)
         self.player.play()
+        if self._pending_seek is not None and self._duration_ms > 0:
+            self.player.set_position(int(self._pending_seek * self._duration_ms))
+            self._pending_seek = None
 
     def _on_duration(self, ms: int) -> None:
         self._duration_ms = ms
@@ -416,7 +450,12 @@ class DawModeWindow(QMainWindow):
                   "Exporting clean master", "Clean Master WAV")
 
     def _export_stems(self) -> None:
-        out_dir = self._out_base() / "stems_export" / self._beat_name()
+        # Explicit: ask where to put the stems — never export on its own.
+        chosen = QFileDialog.getExistingDirectory(
+            self, "Export individual stems to folder…", str(self._out_base()))
+        if not chosen:
+            return
+        out_dir = Path(chosen) / self._beat_name()
         stems = dict(self.stems)
 
         def work():

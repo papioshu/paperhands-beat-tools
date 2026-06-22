@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from PySide6.QtWidgets import (
     QCheckBox,
+    QComboBox,
     QDialog,
     QFileDialog,
     QHBoxLayout,
@@ -103,6 +104,24 @@ class SettingsDialog(QDialog):
         backup_row.addStretch(1)
         layout.addLayout(backup_row)
 
+        # Stem separation model
+        model_heading = QLabel("Stem separation model")
+        model_heading.setObjectName("Heading")
+        layout.addWidget(model_heading)
+        model_hint = QLabel("Model used by Split Stems / DAW Mode. Picking a new "
+                            "one downloads it in the background on first use.")
+        model_hint.setObjectName("SubHeading")
+        model_hint.setWordWrap(True)
+        layout.addWidget(model_hint)
+        self.model_combo = QComboBox()
+        for key, desc in config.DEMUCS_MODELS.items():
+            self.model_combo.addItem(f"{key} — {desc}", key)
+        cur = config.demucs_model()
+        self.model_combo.setCurrentIndex(max(0, self.model_combo.findData(cur)))
+        self.model_combo.setToolTip("Demucs model for stem separation")
+        layout.addWidget(self.model_combo)
+        self.model_combo.currentIndexChanged.connect(self._on_model_changed)
+
         # Export options
         self.chk_master_wav = QCheckBox(
             "Convert clean master to WAV on export (default: copy verbatim)")
@@ -147,6 +166,13 @@ class SettingsDialog(QDialog):
         self.catalog_changed = False  # whether an import altered the library
         self.tags_changed = False     # whether the tag library folder changed
         self.check_updates = False    # whether the user asked to check for updates
+        self.model_changed = False    # whether the stem model selection changed
+
+    def _on_model_changed(self) -> None:
+        name = self.model_combo.currentData()
+        if name and name != config.demucs_model():
+            config.set_demucs_model(name)
+            self.model_changed = True
 
     def _add(self) -> None:
         folder = QFileDialog.getExistingDirectory(self, "Add a folder to watch")

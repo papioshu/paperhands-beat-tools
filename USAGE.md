@@ -59,18 +59,27 @@ Stems) across many selected beats with progress, time-remaining, and counts.
 
 ## Stem Splitter
 **Batch → Split Stems** separates a beat into drums / bass / vocals / other. The
-first split downloads a small model once (needs internet). Stems are
+first split downloads the chosen model once (needs internet). Stems are
 automatically separated and may contain artifacts; the source is never modified.
+Pick the **stem model** in Settings (a faster default, a higher-quality
+fine-tuned model, or a 6-stem model); switching downloads it in the background.
 
 ## DAW Mode
-Opens a multitrack workspace for a beat with stems: per-stem **mute / solo /
-volume / pan / color**, transport with **loop**, a non-destructive **tag
-timeline**, and exports (tagged preview / current mix / clean master / individual
-stems / buyer package). Your mix and tags are saved and restored next time.
+Opens a multitrack workspace for a beat with stems:
+- Each stem row has **M** (mute), **S** (solo), a **volume** slider, a **pan**
+  slider, and its **waveform** — **click a stem's waveform to scrub** the
+  transport to that spot.
+- Transport: **Play Mix** (renders + plays the current stem mix), **Stop**,
+  **Loop**, and a seek bar.
+- A non-destructive **tag timeline** (click to place, drag to move).
+- **Export ▾** lets you choose what to export and where — nothing exports on its
+  own. Your mix and tags are saved and restored next time.
+
+Hover any control for a tooltip explaining what it does.
 
 ## Settings
-Producer name, watched folders, tag library folder, catalog backup
-(export/import), and update checks.
+Producer name, watched folders, tag library folder, **stem separation model**,
+catalog backup (export/import), and update checks.
 
 ---
 

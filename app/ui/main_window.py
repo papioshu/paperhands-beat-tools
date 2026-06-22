@@ -144,7 +144,7 @@ class MainWindow(QMainWindow):
         self._batch_ok = self._batch_fail = 0
         self._batch_folder = None
         # Stem separation
-        self.stem_engine = core_stems.get_engine("Demucs")
+        self.stem_engine = core_stems.get_engine("Demucs", config.demucs_model())
         self.stem_signals = StemSignals()
         self.stem_signals.done.connect(self._on_stem_done)
         self.stem_signals.error.connect(self._on_stem_error)
@@ -221,6 +221,16 @@ class MainWindow(QMainWindow):
         self.btn_about = QPushButton("About")
         self.btn_about.clicked.connect(self._show_about)
         tb.addWidget(self.btn_about)
+
+        self.btn_import.setToolTip("Add beat files to your library (files stay where they are)")
+        self.btn_scan.setToolTip("Scan a folder and catalog any new beats found")
+        self.btn_batch.setToolTip("Run actions on the selected beats: detect, rename, "
+                                  "auto-place tags, export previews/packages, split stems")
+        self.btn_duplicates.setToolTip("Find and clean up duplicate beats in your library")
+        self.btn_daw.setToolTip("Open DAW Mode: mix the beat's stems and place tags")
+        self.btn_settings.setToolTip("Producer name, folders, stem model, backups, updates")
+        self.btn_about.setToolTip("Version and links")
+        self.search.setToolTip("Filter the library by title, genre, mood, key, or tag")
 
         self.btn_import.clicked.connect(self._import_files)
         self.btn_scan.clicked.connect(self._scan_folder)
@@ -706,6 +716,22 @@ class MainWindow(QMainWindow):
             self._prompt_install_demucs(lambda: self._run_stem_split(ids))
             return
         self._run_stem_split(ids)
+
+    def _warm_stem_model(self) -> None:
+        """Rebuild the engine for the chosen model and pre-download it in the
+        background (or offer to install Demucs if it isn't present yet)."""
+        model = config.demucs_model()
+        self.stem_engine = core_stems.get_engine("Demucs", model)
+        if not self.stem_engine.available():
+            self._prompt_install_demucs(lambda: None)
+            return
+        self.progress.log_line(f"Downloading stem model '{model}' in the background…")
+        sig = ExportSignals()
+        sig.done.connect(lambda _p: self.progress.log_line(f"Stem model '{model}' ready."))
+        sig.error.connect(lambda m: self.progress.log_line(f"Model download failed: {m}"))
+        self._warm_signals = sig    # keep a ref so it isn't garbage-collected
+        self.pool.start(FunctionExportRunnable(
+            lambda: (self.stem_engine._load_model(), "")[1], sig))
 
     def _prompt_install_demucs(self, then) -> None:
         box = QMessageBox(self)
@@ -1430,6 +1456,8 @@ class MainWindow(QMainWindow):
             self._update_duplicate_indicator()
         if dlg.tags_changed:
             self.tag_panel.refresh_tags()
+        if dlg.model_changed:
+            self._warm_stem_model()
         if dlg.check_updates:
             self._manual_update_check = True
             self.update_checker.check_async(config.update_repo(), __version__)

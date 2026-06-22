@@ -110,8 +110,9 @@ ENGINES = {"Demucs": DemucsEngine}
 # Future: "MDX-Net", "audio-separator", "Spleeter", external APIs.
 
 
-def get_engine(name: str = "Demucs") -> StemEngine:
-    return ENGINES.get(name, DemucsEngine)()
+def get_engine(name: str = "Demucs", model: str = "htdemucs") -> StemEngine:
+    cls = ENGINES.get(name, DemucsEngine)
+    return cls(model) if cls is DemucsEngine else cls()
 
 
 def build_instrumental(stems: Dict[str, str], out_path: str) -> Optional[str]:

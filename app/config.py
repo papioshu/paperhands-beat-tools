@@ -76,6 +76,28 @@ def set_convert_master_to_wav(on: bool) -> None:
     _settings().setValue(_MASTER_WAV_KEY, "1" if on else "0")
 
 
+_DEMUCS_MODEL_KEY = "demucs_model"
+
+# Demucs models the user can pick (name -> short description).
+DEMUCS_MODELS = {
+    "htdemucs": "Default — fast, 4 stems (drums/bass/vocals/other)",
+    "htdemucs_ft": "Fine-tuned — slower, higher quality, 4 stems",
+    "htdemucs_6s": "6 stems — adds guitar + piano (experimental)",
+    "mdx_extra": "MDX extra — alternative 4-stem model",
+    "mdx_extra_q": "MDX extra (quantized) — smaller/faster",
+}
+
+
+def demucs_model(default: str = "htdemucs") -> str:
+    m = str(_settings().value(_DEMUCS_MODEL_KEY, default) or default)
+    return m if m in DEMUCS_MODELS else default
+
+
+def set_demucs_model(name: str) -> None:
+    if name in DEMUCS_MODELS:
+        _settings().setValue(_DEMUCS_MODEL_KEY, name)
+
+
 def update_repo(default: str = None) -> str:
     """GitHub 'owner/name' the app checks for updates (empty = disabled)."""
     if default is None:

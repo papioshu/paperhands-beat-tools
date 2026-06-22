@@ -61,6 +61,20 @@ def test_daw_window_builds_track_rows(tmp_path):
     db.close()
 
 
+def test_daw_stem_click_scrubs(tmp_path):
+    bid = _beat_with_stems(tmp_path)
+    _app()
+    db = Database(str(tmp_path / "lib.db"))
+    win = DawModeWindow(db, bid)
+    # No mix rendered yet -> a stem-waveform click queues a seek to that spot.
+    win._duration_ms = 0
+    win._pending_seek = None
+    win._rows[0].wave.seek_requested.emit(0.5)
+    assert win._pending_seek == 0.5
+    win.close()
+    db.close()
+
+
 def test_daw_tag_place_and_clear(tmp_path):
     bid = _beat_with_stems(tmp_path)
     _app()
