@@ -1,121 +1,84 @@
-# Paperhand's Beat Tools — Usage Guide
+# Paperhand Beat Manager — User Guide
 
-A producer beat toolkit: catalog, analyze, tag, preview, split stems, and export
-beats. Tags only overlay your own audio — no generated vocals. Originals are
-never modified.
-
----
-
-## Install & launch
-
-### Installed app (recommended)
-1. Download `PaperhandsBeatTools-Setup-<version>.exe` from
-   [Releases](https://github.com/papioshu/paperhands-beat-tools/releases).
-2. Run it and choose an install folder. ffmpeg is bundled.
-3. Launch from the Start menu / desktop shortcut. The app checks for updates on
-   start and offers to download + install new releases.
-
-### From source
-```powershell
-python -m pip install -r requirements.txt PySide6
-python -m app.main          # desktop app
-python tag_beats.py --help  # batch CLI
-```
-Requires Python 3.10+ and ffmpeg on PATH (`winget install Gyan.FFmpeg`).
+Catalog, tag, preview, split, and package your beats. Tags only overlay your own
+audio — no generated vocals, and your masters are never modified.
 
 ---
 
-## The desktop app
-
-### Library (left)
-- **Import Beats** / **Scan Folder** to catalog audio in place (files are never
-  moved). Add persistent watched folders under **Settings**; they're auto-scanned
-  on launch and only new files are added.
-- BPM and key are detected in the background; the table fills in as analysis runs
-  (watch the progress bar + log at the bottom).
-- Search box filters by title / genre / mood / key / tag.
-- Multi-select with Ctrl/Shift-click for batch actions.
-- **Duplicates** lights up orange when fingerprint-matched copies exist; open it
-  to remove extras from the library (files on disk are kept).
-
-### Beat details (right, collapsible)
-- Edit title, **BPM/Key** (with detected candidates + confidence), genre,
-  sub-genre, mood (a low-confidence suggestion pre-fills an empty mood), tags,
-  notes. **Save** to persist.
-- **Set image…** to attach your own cover art, or **Generate** a procedural one.
-  Cover art is embedded into exported MP3s.
-- **Rename file…** renames in place from a pattern; **Relocate…** re-points a
-  moved file.
-
-### Tagging
-- **Tag library** (collapsible): tags are grouped by **category**; enable/disable
-  with the checkbox, **★ favorite**, **▶ Preview**, set category. Pick a tag to
-  make it active.
-- Toggle **Place on click** and click the waveform to drop the active tag; drag a
-  marker to move it, click a marker to remove it.
-- **Tag @ Drop** / **Tag @ Hook** place at detected positions.
-- **Auto-place** opens a dialog: choose a **profile** (Standard / Paperhand /
-  BeatStars / Heavy Protection) or **mode** (intro / fixed / random / structure /
-  hook), set interval/jitter and **min spacing** (default 30s so tags never
-  stack), and preview the count. Applies to the current beat — or to **all
-  selected beats** at once.
-- **Layers** (collapsible): each placed tag is a layer with **enable / M(ute) /
-  S(olo) / volume / pan**, honored in the export and the live preview.
-- **Live preview**: press Play and you'll hear tags fire at their positions
-  (the beat stays at full volume — ducking is off by default).
-- **Crop preview**: toggle Crop, drag a region on the waveform, then Export
-  Tagged Preview to render just that region.
-- Scroll the wheel over the waveform to **zoom**; Shift+wheel pans.
-
-### Exports (Tag library panel)
-- **Export Tagged Preview** — clean beat + tags (cropped if a region is set),
-  320 kbps, with ID3 metadata (producer = your name from Settings) + cover art.
-- **Export Clean Master** — your untouched master (verbatim, or WAV via Settings).
-- **Export Tag Stem** — a beat-length WAV that is silence except the tags.
-- **Export Buyer Package** — a zip with the clean master + manifest (+ license
-  placeholder). Outputs land in `masters/ previews/ tag_stems/ packages/
-  metadata/` next to your library.
-
-### Batch (toolbar `Batch ▾`)
-On the selected beats: Detect BPM/Key, Rename Files, Auto-Place Tags, Export
-Tagged Previews, Generate Buyer Packages, Split Stems. Shows a progress bar with
-ETA and ✓/✗ counts.
-
-### Stem Splitter
-**Batch ▾ → Split Stems** separates a beat into drums/bass/vocals/other (AI,
-artifacts possible; source untouched). If the Demucs engine isn't installed, the
-app offers a one-click install. Stems go to `stems/<BeatName>/`.
-
-### DAW Mode (toolbar)
-Opens a lightweight multitrack workspace for a beat with stems:
-- One track per stem with **color / mute / solo / volume / pan / waveform**.
-- Transport: **Play Mix** (renders the live stem mix), Stop, **Loop**, seek,
-  timestamp.
-- A **tag timeline** for non-destructive tags.
-- Export menu: Tagged Preview MP3 / Current Mix WAV / Clean Master WAV /
-  Individual Stems / Buyer Package ZIP.
-- Your mix + tags are saved to `sessions/<BeatName>.session.json` and restored
-  when you reopen.
-
-### Settings
-Producer name (ID3 artist), watched folders, tag library folder, catalog
-export/import (CSV/JSON backup), convert-master-to-WAV toggle, and update repo /
-"Check for updates".
+## Getting started
+1. Install **Paperhand Beat Manager** (see the
+   [Releases page](https://github.com/papioshu/paperhands-beat-tools/releases))
+   and launch it.
+2. Open **Settings** and set your **producer name** (stamped on exports), your
+   **tag library folder**, and any **watched folders** to scan for new beats.
 
 ---
 
-## Batch CLI (`tag_beats.py`)
-Stamp a tag across every MP3 in a folder:
-```powershell
-python tag_beats.py --input input --tags tags --output output
-python tag_beats.py --interval 35 --jitter 4 --no-start --producer "yourname"
-```
-See `python tag_beats.py --help` for all options. Originals are never overwritten;
-a CSV report is written to `reports/`.
+## Library
+- **Import Beats** / **Scan Folder** add audio to your catalog in place — files
+  are never moved or altered. Watched folders are picked up automatically on
+  launch; only new files are added.
+- BPM and key are detected in the background; the list fills in as it runs (watch
+  the progress bar at the bottom).
+- Use the **search box** to filter by title, genre, mood, key, or tag.
+- Hold **Ctrl/Shift** to select several beats for batch actions.
+- **Duplicates** lights up when matching beats are found; open it to remove the
+  extras from your library (your files on disk are kept).
+
+## Beat details
+Edit title, **BPM/Key** (with detected suggestions), genre, sub-genre, mood,
+tags, and notes — then **Save**. Attach your own cover art with **Set image…**
+or **Generate** one; cover art is embedded into tagged previews. **Rename file…**
+tidies a filename in place; **Relocate…** re-points a beat you've moved.
+
+## Tagging
+- The **Tag library** groups your tags by **category**; enable/disable each,
+  mark **★ favorites**, and **▶ Preview** to hear one.
+- Toggle **Place on click** and click the waveform to drop the active tag. Drag a
+  marker to move it; click it to remove it. Scroll to **zoom** the waveform.
+- **Tag @ Drop** / **Tag @ Hook** place at detected spots.
+- **Auto-place** opens a dialog to lay tags by **profile** (Standard, Paperhand,
+  BeatStars, Heavy Protection) or **mode** (intro, fixed/random interval,
+  structure, hook), with a **minimum spacing** so tags never stack. Apply to one
+  beat or to all selected beats at once.
+- **Layers** lets each tag be its own layer with **mute / solo / volume / pan**,
+  reflected in both the preview and the export.
+- Press **Play** to preview — placed tags fire at their spots over the
+  full-volume beat, just like the export. Toggle **Crop preview** and drag a
+  region to preview/export just part of a beat.
+
+## Exports
+- **Tagged Preview** — beat + tags (cropped if you set a region), with your
+  producer name and cover art embedded.
+- **Clean Master** — your untouched master, copied out for delivery.
+- **Tag Stem** — a beat-length track with only your tags.
+- **Buyer Package** — a zip with the clean master and a details file.
+
+Use the **Batch** menu to run these (plus Detect, Rename, Auto-Place, Split
+Stems) across many selected beats with progress, time-remaining, and counts.
+
+## Stem Splitter
+**Batch → Split Stems** separates a beat into drums / bass / vocals / other. The
+first time, accept the one-click setup for the stem engine. Stems are
+automatically separated and may contain artifacts; the source is never modified.
+
+## DAW Mode
+Opens a multitrack workspace for a beat with stems: per-stem **mute / solo /
+volume / pan / color**, transport with **loop**, a non-destructive **tag
+timeline**, and exports (tagged preview / current mix / clean master / individual
+stems / buyer package). Your mix and tags are saved and restored next time.
+
+## Settings
+Producer name, watched folders, tag library folder, catalog backup
+(export/import), and update checks.
 
 ---
 
-## Notes
-- Stem separation is AI-estimated and may contain artifacts.
-- The installed app is unsigned, so Windows SmartScreen shows a "more info → run
-  anyway" prompt on first launch (normal for indie apps).
+## Troubleshooting
+- **"missing"** next to a beat — the file moved; select it and **Relocate**.
+- **Silent playback** — check your Windows output device.
+- **Stem splitting unavailable** — accept the one-click setup the first time.
+- **Wrong BPM/key** — pick a suggested value in Beat details, or type your own.
+
+Outputs are organized next to your library in `masters/`, `previews/`,
+`tag_stems/`, `stems/`, `buyer_packages/`, and `sessions/`.

@@ -1,204 +1,94 @@
-# Paperhand's Beat Tools
+# Paperhand Beat Manager
 
-A producer beat toolkit with two front-ends over one shared audio engine
-(`core/`):
+Catalog, tag, preview, split, and package your beats — built for producers.
 
-1. **Batch tagger CLI** (`tag_beats.py`) — stamp your tag across a whole folder
-   automatically. Documented below.
-2. **Desktop app** (`python -m app.main`) — catalog/auto-analyze/tag a library
-   and place tags by hand on a waveform. See **[Desktop app](#desktop-app-gui)**.
-
-> This is a **beat-preview** tool. It only overlays *your existing tag audio*
-> onto instrumentals — it never generates vocals or changes the music.
+Paperhand Beat Manager keeps your catalog organized, stamps your producer tags
+on previews without touching your masters, splits beats into stems, and bundles
+clean buyer packages — all from one app.
 
 ---
 
-## Batch tagger CLI
+## Download & install
 
-Stamp your producer tag across every MP3 in a folder, with one command (or one
-double-click). Tagged copies go to a separate folder; **your originals are never
-touched**. A CSV report records what happened to each file.
+1. Download the latest **installer** from the
+   [Releases page](https://github.com/papioshu/paperhands-beat-tools/releases).
+2. Run it and choose where to install. Everything it needs is included.
+3. Launch **Paperhand Beat Manager** from your Start menu or desktop.
 
----
+On first launch Windows may show a "Windows protected your PC" notice for a new
+app — choose **More info → Run anyway**.
 
-## What it does
-
-For every `.mp3` in `input/`:
-
-1. Optionally detects **BPM** and **key** (librosa) — only if they aren't already
-   in the filename and you didn't override them.
-2. Places your tag at the start (optional) and **again every ~40s** (configurable),
-   with optional random **jitter** so placements aren't robotic.
-3. **Rotates randomly** through every tag file in `tags/` (use one or many).
-4. Overlays each tag **without changing the beat volume** (ducking is off by
-   default; enable with `--duck-db` if you want the beat to dip under tags).
-5. **Normalizes** safely so the export never clips.
-6. Exports a **320 kbps** MP3 named like `Beat_140BPM_Fsharpmin_tagged.mp3`
-   (BPM/key appended only if missing — never duplicated).
-7. Writes a CSV report to `reports/`.
+The app checks for updates on launch and offers to install new versions for you.
 
 ---
 
-## Folder structure
+## Quick start
 
-```
-Paperhand'sBeatTools/
-├── tag_beats.py          # the CLI
-├── run_tagger.bat        # double-click launcher (Windows)
-├── requirements.txt
-├── core/                 # shared audio engine (reused by the future GUI)
-├── tests/                # unit tests (no ffmpeg needed)
-├── input/                # <- put untagged MP3 beats here
-├── tags/                 # <- put your producer tag (WAV/MP3) here
-├── output/               # -> tagged MP3s appear here
-└── reports/              # -> CSV reports appear here
-```
+1. **Import beats** — click **Import Beats** (pick files) or **Scan Folder**
+   (pick a folder). Your files stay where they are; nothing is moved or changed.
+   BPM and key are detected automatically in the background.
+2. **Set your producer name** — open **Settings** and enter the name to stamp on
+   exports.
+3. **Add tags** — drop your tag files into your tag folder (set in **Settings**
+   or the **Tag library** panel). Select a beat, pick a tag, toggle **Place on
+   click**, and click the waveform to place it. Drag a marker to move it; click
+   it to remove it.
+4. **Auto-place** — click **Auto-place** to lay tags down by profile (Standard,
+   Paperhand, BeatStars, Heavy Protection) or by mode (intro, fixed interval,
+   structure, hook), with a minimum spacing so tags never stack.
+5. **Export** — see below.
 
----
-
-## Windows setup (one time)
-
-**1. Python** — 3.10+ (3.13 recommended). Check:
-
-```powershell
-python --version
-```
-
-**2. ffmpeg** — required for reading/writing MP3. Easiest via winget:
-
-```powershell
-winget install Gyan.FFmpeg
-```
-
-Then **close and reopen** your terminal so `PATH` updates. Verify:
-
-```powershell
-ffmpeg -version
-```
-
-(Manual alternative: download from https://www.gyan.dev/ffmpeg/builds/, unzip,
-and add the `bin` folder to your PATH.)
-
-**3. Python packages:**
-
-```powershell
-python -m pip install -r requirements.txt
-```
+Press **Play** to preview; placed tags play at their spots over the full-volume
+beat, exactly like the export.
 
 ---
 
-## Usage
+## Exports
 
-Put beats in `input/`, your tag(s) in `tags/`, then:
+From the **Tag library** panel (or **Batch** for many beats at once):
 
-```powershell
-# Simplest — uses all defaults (start + every 40s, 320k):
-python tag_beats.py
+- **Tagged Preview** — your beat with tags baked in, for sharing/previews.
+  Cover art and your producer name are embedded.
+- **Clean Master** — your untouched master, copied out for delivery.
+- **Tag Stem** — a silent track with only your tags, aligned to the beat.
+- **Buyer Package** — a ready-to-send zip with the clean master and a details
+  file. (Never includes your originals' folders or anything private.)
 
-# Tag every 35s with +/-4s random wobble, no tag at the very start:
-python tag_beats.py --interval 35 --jitter 4 --no-start
+Outputs are organized next to your library:
 
-# Force a BPM/key (skips detection) and a lighter duck:
-python tag_beats.py --bpm 140 --key F#min --duck-db 4
-
-# Experimental: anchor the first tag at the detected drop:
-python tag_beats.py --before-drop
-
-# Reproducible rotation/jitter for a consistent run:
-python tag_beats.py --seed 42
+```
+masters/  previews/  tag_stems/  stems/  buyer_packages/  sessions/
 ```
 
-See every option:
-
-```powershell
-python tag_beats.py --help
-```
-
-### Double-click mode
-
-Just run **`run_tagger.bat`**. To bake in options, edit its `set OPTIONS=` line,
-e.g. `set OPTIONS=--interval 35 --jitter 4 --before-drop`.
+Files are named clearly, e.g. `Midnight Drive_140BPM_Fsharpmin_tagged.mp3`.
 
 ---
 
-## Options reference
+## Stem Splitter & DAW Mode
 
-| Flag | Default | Meaning |
-|------|---------|---------|
-| `--input / --tags / --output / --reports` | `input` / `tags` / `output` / `reports` | Folders |
-| `--interval` | `40` | Seconds between repeated tags |
-| `--jitter` | `0` | Random ± wobble (s) on each interval spot |
-| `--start` / `--no-start` | `--start` | Place a tag at the very beginning |
-| `--before-drop` | off | Anchor first tag at the detected drop (experimental) |
-| `--duck-db` | `0` | dB the beat drops under each tag (0 = no ducking) |
-| `--headroom-db` | `1` | Normalize peak target = −headroom dBFS |
-| `--bpm` | auto | Manual BPM (skips BPM detection) |
-| `--key` | auto | Manual key e.g. `F#min` (skips key detection) |
-| `--no-detect` | — | Disable BPM/key detection entirely |
-| `--bitrate` | `320k` | Output MP3 bitrate |
-| `--suffix` | `_tagged` | Suffix added to output filenames |
-| `--seed` | random | Seed for reproducible rotation/jitter |
+- **Split Stems** (Batch menu) separates a beat into **drums / bass / vocals /
+  other**. The first time you use it, the app offers a one-click setup for the
+  stem engine. Stems are automatically separated and may contain artifacts; your original
+  file is never modified.
+- **DAW Mode** opens a lightweight multitrack workspace for a beat with stems:
+  mute/solo/volume/pan each stem, play the live mix, place tags on the timeline,
+  and export a tagged preview, the current mix, the clean master, individual
+  stems, or a buyer package. Your mix and tags are saved and restored next time.
 
 ---
 
-## Troubleshooting
+## Tips & troubleshooting
 
-- **`ffmpeg was not found`** — install it (step 2) and reopen your terminal.
-- **`no .mp3 files found`** — put beats in `input/` (only `.mp3` is processed).
-- **`no tag files found`** — put a `.wav`/`.mp3` tag in `tags/`.
-- **Wrong BPM/key detected** — detection is a best guess; override with
-  `--bpm` / `--key`, or disable it with `--no-detect`.
-- **A single file failed** — the batch continues; the reason is logged in the
-  `error` column of the CSV report.
-
----
-
-## Quality note
-
-MP3 is lossy, and tagging requires decode → mix → re-encode, so there's always
-some re-encode loss. Exporting at **320 kbps** (the default) keeps it
-near-transparent. For archival masters, tag from lossless sources instead.
+- **A beat shows "missing"** — the file moved or was renamed. Select it and use
+  **Relocate** to point at its new location.
+- **Duplicates** lights up when it finds matching beats; open it to clean them
+  out of your library (your files on disk are kept).
+- **Playback is silent** — check your output device in Windows sound settings.
+- **Stem splitting unavailable** — accept the one-click setup prompt the first
+  time you split (it downloads the stem engine).
+- **Nothing imported** — only audio files are added (`.mp3 .wav .flac .aiff …`).
 
 ---
 
-## Desktop app (GUI)
-
-A PySide6 app for managing and hand-tagging a beat library. Same setup as the
-CLI (Python + ffmpeg + `requirements.txt`), plus PySide6:
-
-```powershell
-python -m pip install -r requirements.txt PySide6
-python -m app.main
-```
-
-What it does:
-
-- **Catalog in place** — *Import Beats* (files) or *Scan Folder*; add persistent
-  watched folders under *Settings* and *Scan now*. Files are never moved.
-- **Auto-analysis** — BPM and key are detected in the background on import, and a
-  waveform is cached for instant display.
-- **Tag & organize** — edit title, genre, sub-genre, mood, free-form tags, and
-  notes (with autocomplete); search/filter the whole library.
-- **Audition** — seekable waveform player; click the waveform to seek.
-- **Rename in place** — rename the actual file from a pattern
-  (e.g. `{title} [{bpm} {key}]`), collision-safe.
-- **Relocate** — moved a file? A *missing* row gets a *Relocate* button.
-- **Hand-place tags** — pick a tag from the *Tag library*, toggle *Place on
-  click*, and click anywhere on the waveform to drop it (click a marker again to
-  remove it). *Auto-place* lays down default interval tags to tweak. *Export
-  Tagged* renders the beat through the same engine the CLI uses, into `./output`.
-
-The look is a violet / lime / gunmetal-grey theme.
-
----
-
-## Running the tests
-
-The pure-logic tests (naming, placement, DB, waveform) need no ffmpeg or audio
-libraries; GUI tests need PySide6; the audio integration tests need ffmpeg +
-librosa (they skip cleanly otherwise):
-
-```powershell
-python -m pip install pytest
-python -m pytest tests/ -q
-```
+Paperhand Beat Manager only overlays your own tag audio onto previews. It never
+generates vocals, and your masters are always left untouched.

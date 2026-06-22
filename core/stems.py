@@ -1,8 +1,8 @@
 """Pluggable stem separation. Default engine: Demucs.
 
-Stem separation is AI-estimated and may contain artifacts; it never touches the
-original file. The engine is pluggable so MDX-Net / audio-separator / Spleeter /
-external APIs can be added later behind the same interface.
+Stem separation is automatic and may contain artifacts; it never touches the
+original file. The engine is pluggable so other separators can be added later
+behind the same interface.
 
 Demucs (and its PyTorch dependency, multi-GB) is intentionally NOT bundled. The
 GUI offers a one-click install via ``install_command()`` when it's missing.

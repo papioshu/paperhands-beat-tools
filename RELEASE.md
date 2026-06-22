@@ -1,46 +1,38 @@
-# Release & Build Guide
+# Paperhand Beat Manager — Release Notes
 
-How to build the Windows installer and cut a self-updating release.
+## v1.0.0
 
-## Prerequisites (one time)
-- Python 3.10+ with deps: `python -m pip install -r requirements.txt PySide6 pyinstaller`
-- ffmpeg installed (`winget install Gyan.FFmpeg`) — it gets bundled into the build
-- Inno Setup 6 (`winget install JRSoftware.InnoSetup`)
+### Install
+1. Download the installer from the
+   [Releases page](https://github.com/papioshu/paperhands-beat-tools/releases).
+2. Run it and choose where to install.
+3. Open **Paperhand Beat Manager** from your Start menu or desktop.
+   (If Windows shows a "protected your PC" notice for a new app, choose
+   **More info → Run anyway**.)
 
-## Cutting a release
-1. **Bump the version** in two places:
-   - `app/version.py` → `__version__ = "X.Y.Z"`
-   - `packaging/installer.iss` → `#define MyAppVersion "X.Y.Z"`
-2. **Run the tests**: `set QT_QPA_PLATFORM=offscreen && python -m pytest tests/ -q`
-3. **Build the bundle + installer**:
-   ```powershell
-   powershell -ExecutionPolicy Bypass -File packaging\build.ps1
-   ```
-   This runs PyInstaller (`packaging/BeatTools.spec`) to produce
-   `dist/PaperhandsBeatTools/` (the app + bundled ffmpeg), then Inno Setup to
-   produce `packaging/Output/PaperhandsBeatTools-Setup-X.Y.Z.exe`.
-4. **Commit, tag, and release**:
-   ```powershell
-   git commit -am "Bump to vX.Y.Z"
-   git push origin main
-   git tag -a vX.Y.Z -m "vX.Y.Z" ; git push origin vX.Y.Z
-   gh release create vX.Y.Z packaging\Output\PaperhandsBeatTools-Setup-X.Y.Z.exe `
-     --title "vX.Y.Z" --notes "release notes..."
-   ```
+### First run
+1. Open **Settings** and set your **producer name**, your **tag library folder**,
+   and any **watched folders** to scan for beats.
+2. **Import Beats** or **Scan Folder** to build your catalog (files stay in
+   place; BPM and key are detected for you).
+3. Place tags on the waveform — or use **Auto-place** — then **Export Tagged
+   Preview**. Use **Batch** to tag and export many beats at once.
 
-## How auto-update works
-- The app checks `app.version.UPDATE_REPO` (default
-  `papioshu/paperhands-beat-tools`) for the latest GitHub release on launch.
-- If the release tag is newer than the running version, it offers
-  **Download & Install** — it downloads the release's `*-Setup-*.exe` asset and
-  runs it. (Detection + download are wired in `app/updater.py`.)
-- So: publishing a tagged Release with the installer asset *is* the update.
+### What's in this release
+- Beat catalog with automatic BPM/key detection, search, duplicate cleanup, and
+  cover art.
+- Non-destructive tagging: place tags by hand or by profile, with layers
+  (mute/solo/volume/pan) and live preview.
+- Exports: tagged previews, clean masters, tag stems, and buyer packages.
+- Batch operations across many beats with progress and time-remaining.
+- Stem splitting (drums/bass/vocals/other) with a one-click setup.
+- DAW Mode: a lightweight multitrack stem workspace with saved sessions.
+- Automatic update checking.
 
-## Notes
-- The installer bundles all **required** Python deps + ffmpeg, so the app runs
-  with no separate install.
-- **Demucs (stem separation)** and its PyTorch dependency are NOT bundled (they'd
-  add several GB). The app installs them on demand via the one-click prompt. See
-  the README/USAGE for the stem-splitting flow.
-- The build is unsigned; sign `PaperhandsBeatTools.exe` and the installer with a
-  code-signing certificate to avoid SmartScreen warnings.
+### Known issues
+- Because it's a new, unsigned app, Windows SmartScreen may warn on first launch
+  (choose **Run anyway**).
+- Stem separation requires a one-time setup the first time you use it, and is
+  automatically estimated — results may contain artifacts. Your originals are
+  never changed.
+- Stem splitting is CPU-intensive; large libraries take time to process.
