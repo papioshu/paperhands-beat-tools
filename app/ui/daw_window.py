@@ -36,7 +36,7 @@ from app.ui.player import AudioPlayer
 from app.ui.widgets import WaveformWidget
 from app.workers import ExportSignals, FunctionExportRunnable
 from core import exports as core_exports
-from core import mixer, pipeline
+from core import mixer, pipeline, session
 from core import waveform as wf
 from core.models import Placement, TaggingConfig
 
@@ -51,9 +51,10 @@ STEM_COLORS = {
 class TrackRow(QFrame):
     """One stem track: color + name + M/S + volume + pan + waveform."""
 
-    def __init__(self, track: dict):
+    def __init__(self, track: dict, on_change=None):
         super().__init__()
         self.track = track
+        self._on_change = on_change
         self.setObjectName("Panel")
         h = QHBoxLayout(self)
         h.setContentsMargins(6, 2, 6, 2)
@@ -111,6 +112,26 @@ class TrackRow(QFrame):
             "mute": self.mute.isChecked(), "solo": self.solo.isChecked(),
             "volume_db": float(self.vol.value()), "pan": self.pan.value() / 100.0,
         })
+        if self._on_change:
+            self._on_change()
+
+    def apply_state(self, state: dict) -> None:
+        """Restore mute/solo/volume/pan from a session (no change callback)."""
+        for w in (self.mute, self.solo, self.vol, self.pan):
+            w.blockSignals(True)
+        self.mute.setChecked(bool(state.get("mute")))
+        self.solo.setChecked(bool(state.get("solo")))
+        self.vol.setValue(int(state.get("volume_db", 0)))
+        self.pan.setValue(int(state.get("pan", 0.0) * 100))
+        for w in (self.mute, self.solo, self.vol, self.pan):
+            w.blockSignals(False)
+        self._sync_silent()
+
+    def _sync_silent(self) -> None:
+        self.track.update({
+            "mute": self.mute.isChecked(), "solo": self.solo.isChecked(),
+            "volume_db": float(self.vol.value()), "pan": self.pan.value() / 100.0,
+        })
 
 
 class DawModeWindow(QMainWindow):
@@ -136,14 +157,38 @@ class DawModeWindow(QMainWindow):
         self.render_signals.error.connect(
             lambda m: self.status.setText(f"Mix render failed: {m}"))
         self.export_signals = ExportSignals()
-        self.export_signals.done.connect(
-            lambda p: self.status.setText(f"Exported → {Path(p).name}"))
+        self.export_signals.done.connect(self._on_export_done)
         self.export_signals.error.connect(
             lambda m: QMessageBox.warning(self, "Export failed", m))
+        self._export_kind = ""
 
         self._build_ui()
         self._tracks = [r.track for r in self._rows]
+        self._session_path = session.session_path(str(self._out_base()), self._beat_name())
+        self._session = session.load_session(self._session_path)
+        self._restore_tracks()
         self._load_tag_timeline()
+        self._save_session()
+
+    def _restore_tracks(self) -> None:
+        saved = (self._session or {}).get("tracks", {})
+        for row in self._rows:
+            if row.track["name"] in saved:
+                row.apply_state(saved[row.track["name"]])
+
+    def _save_session(self) -> None:
+        history = (self._session or {}).get("export_history", [])
+        self._session = session.build_session(
+            self._beat_name(), bpm=self.row["bpm"], key=self.row["key"],
+            duration=self.row["duration_sec"], source_master=self.row["file_path"],
+            stems=self.stems,
+            tag_placements=[{"pos": p.position_sec, "tag": p.tag_path}
+                            for p in self._placements],
+            tracks={t["name"]: {"mute": t["mute"], "solo": t["solo"],
+                                "volume_db": t["volume_db"], "pan": t["pan"]}
+                    for t in self._tracks},
+            export_history=history)
+        session.save_session(self._session_path, self._session)
 
     # -- build -------------------------------------------------------------
 
@@ -175,7 +220,8 @@ class DawModeWindow(QMainWindow):
                 tr = TrackRow({"name": stem, "path": self.stems[stem],
                                "color": STEM_COLORS.get(stem, "#9AA0AB"),
                                "mute": False, "solo": False,
-                               "volume_db": 0.0, "pan": 0.0, "enabled": True})
+                               "volume_db": 0.0, "pan": 0.0, "enabled": True},
+                              on_change=self._save_session)
                 self._rows.append(tr)
                 tracks_box.addWidget(tr)
         scroll = QScrollArea()
@@ -265,6 +311,7 @@ class DawModeWindow(QMainWindow):
         self._placements.sort(key=lambda p: p.position_sec)
         self._refresh_markers()
         self._save_placements()
+        self._save_session()
 
     def _remove_marker(self, index: int) -> None:
         if 0 <= index < len(self._placements):
@@ -284,6 +331,7 @@ class DawModeWindow(QMainWindow):
         self._placements = []
         self._refresh_markers()
         self._save_placements()
+        self._save_session()
 
     # -- transport ---------------------------------------------------------
 
@@ -335,9 +383,15 @@ class DawModeWindow(QMainWindow):
         return build_output_stem(Path(self.row["filename"]).stem,
                                  self.row["bpm"], self.row["key"], suffix="")
 
-    def _run(self, fn, label: str) -> None:
+    def _run(self, fn, label: str, kind: str) -> None:
+        self._export_kind = kind
         self.status.setText(f"{label}…")
         self.pool_start(FunctionExportRunnable(fn, self.export_signals))
+
+    def _on_export_done(self, out_path: str) -> None:
+        self.status.setText(f"Exported → {Path(out_path).name}")
+        session.record_export(self._session, self._export_kind, out_path)
+        session.save_session(self._session_path, self._session)
 
     def _export_tagged_preview(self) -> None:
         out = self._out_base() / "previews" / f"{self._beat_name()}_TAGGED.mp3"
@@ -346,20 +400,20 @@ class DawModeWindow(QMainWindow):
         src = self.row["file_path"]
         cfg = TaggingConfig()
         self._run(lambda: pipeline.export_with_placements(
-            src, placements, str(out), cfg, layers=layers), "Exporting tagged preview")
+            src, placements, str(out), cfg, layers=layers), "Exporting tagged preview", "Tagged Preview")
 
     def _export_current_mix(self) -> None:
         out = self._out_base() / "mixes" / f"{self._beat_name()}_MIX.wav"
         out.parent.mkdir(parents=True, exist_ok=True)
         tracks = [dict(t) for t in self._tracks]
-        self._run(lambda: mixer.mix_stem_tracks(tracks, str(out)), "Exporting mix")
+        self._run(lambda: mixer.mix_stem_tracks(tracks, str(out)), "Exporting mix", "Current Mix WAV")
 
     def _export_clean_master(self) -> None:
         out = self._out_base() / "masters" / f"{self._beat_name()}.wav"
         out.parent.mkdir(parents=True, exist_ok=True)
         src = self.row["file_path"]
         self._run(lambda: core_exports.export_clean_master(src, str(out), to_wav=True),
-                  "Exporting clean master")
+                  "Exporting clean master", "Clean Master WAV")
 
     def _export_stems(self) -> None:
         out_dir = self._out_base() / "stems_export" / self._beat_name()
@@ -373,7 +427,7 @@ class DawModeWindow(QMainWindow):
                     shutil.copy2(path, out_dir / f"{name}.wav")
             return str(out_dir)
 
-        self._run(work, "Exporting stems")
+        self._run(work, "Exporting stems", "Individual Stems")
 
     def _export_buyer_package(self) -> None:
         beat_name = self._beat_name()
@@ -404,7 +458,7 @@ class DawModeWindow(QMainWindow):
                         zf.write(path, f"stems/{name}.wav")
             return str(zip_path)
 
-        self._run(work, "Building buyer package")
+        self._run(work, "Building buyer package", "Buyer Package")
 
     def closeEvent(self, event):  # noqa: N802
         self.player.stop()

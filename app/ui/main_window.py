@@ -639,6 +639,23 @@ class MainWindow(QMainWindow):
         self.progress.end(f"Batch complete — {ok} ok, {fail} failed",
                           folder=self._batch_folder)
 
+    def _create_session(self, row, stems: dict) -> None:
+        """Auto-create a DAW Mode session when stems are generated."""
+        from core import session as core_session
+        try:
+            bn = self._beat_name(row)
+            path = core_session.session_path(str(self._export_base()), bn)
+            if Path(path).exists():
+                return
+            placements = self._load_placements(row)
+            core_session.save_session(path, core_session.build_session(
+                bn, bpm=row["bpm"], key=row["key"], duration=row["duration_sec"],
+                source_master=row["file_path"], stems=stems,
+                tag_placements=[{"pos": p.position_sec, "tag": p.tag_path}
+                                for p in placements]))
+        except Exception:  # noqa: BLE001 - session is best-effort
+            pass
+
     def _open_daw_mode(self) -> None:
         bid = self._current_beat_id
         if bid is None:
@@ -738,6 +755,7 @@ class MainWindow(QMainWindow):
     def _on_stem_done(self, beat_id: int, stems: dict) -> None:
         self.db.update_beat(beat_id, stems=json.dumps(stems))
         row = self.db.get_beat(beat_id)
+        self._create_session(row, stems)
         self._stem_ok += 1
         self._stem_done += 1
         self.progress.log_line(f"✓ {row['filename'] if row else beat_id}: "

@@ -79,6 +79,39 @@ def test_daw_tag_place_and_clear(tmp_path):
     db.close()
 
 
+def test_daw_session_persists_and_restores(tmp_path):
+    import json as _json
+
+    from core import session
+
+    bid = _beat_with_stems(tmp_path)
+    _app()
+    db = Database(str(tmp_path / "lib.db"))
+
+    win = DawModeWindow(db, bid)
+    win._rows[0].vol.setValue(-6)          # change drums volume -> triggers save
+    win._rows[1].mute.setChecked(True)     # mute bass
+    win._place_tag(0.5)
+    bn = win._beat_name()
+    sp = win._session_path
+    win.close()
+
+    # Session file written with the states
+    data = session.load_session(sp)
+    assert data["tracks"]["drums"]["volume_db"] == -6.0
+    assert data["tracks"]["bass"]["mute"] is True
+    assert len(data["tag_placements"]) == 1
+
+    # Reopen -> states restored
+    win2 = DawModeWindow(db, bid)
+    drums = next(r for r in win2._rows if r.track["name"] == "drums")
+    bass = next(r for r in win2._rows if r.track["name"] == "bass")
+    assert drums.vol.value() == -6
+    assert bass.mute.isChecked() is True
+    win2.close()
+    db.close()
+
+
 def test_daw_mute_solo_reflected_in_tracks(tmp_path):
     bid = _beat_with_stems(tmp_path)
     _app()
