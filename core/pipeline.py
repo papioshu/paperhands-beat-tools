@@ -136,10 +136,16 @@ def export_with_placements(
     """
     beat = audio.load_audio(input_path)
 
+    # Skip placements whose tag file is missing/unreadable — never crash an export.
+    placements = [p for p in placements if Path(p.tag_path).exists()]
     tag_cache = tag_cache if tag_cache is not None else {}
     for p in placements:
         if p.tag_path not in tag_cache:
-            tag_cache[p.tag_path] = audio.load_audio(p.tag_path)
+            try:
+                tag_cache[p.tag_path] = audio.load_audio(p.tag_path)
+            except Exception:  # noqa: BLE001 - drop a bad tag, keep the rest
+                tag_cache[p.tag_path] = None
+    placements = [p for p in placements if tag_cache.get(p.tag_path) is not None]
 
     mixed = audio.apply_placements(beat, placements, tag_cache, config.duck_db, layers)
 

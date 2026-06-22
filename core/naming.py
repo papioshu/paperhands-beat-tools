@@ -101,4 +101,11 @@ def build_output_stem(
 
     if suffix and not stem.lower().endswith(suffix.lower()):
         stem += suffix
-    return stem
+    return sanitize_filename(stem)
+
+
+def sanitize_filename(name: str) -> str:
+    """Strip characters illegal in Windows filenames + control chars; tidy spaces."""
+    name = re.sub(r'[<>:"/\\|?*\x00-\x1f]', "", name)
+    name = re.sub(r"\s{2,}", " ", name).strip(" .")
+    return name or "untitled"

@@ -82,3 +82,15 @@ def test_suffix_is_not_doubled():
 
 def test_bpm_is_rounded_to_int():
     assert naming.build_output_stem("Beat", bpm=139.6, key=None) == "Beat_140BPM_tagged"
+
+
+def test_sanitize_strips_illegal_chars():
+    assert naming.sanitize_filename('a/b:c*d?e"f<g>h|i') == "abcdefghi"
+    assert naming.sanitize_filename("  spaced  out  ") == "spaced out"
+    assert naming.sanitize_filename("") == "untitled"
+
+
+def test_build_output_stem_sanitizes():
+    out = naming.build_output_stem('My/Beat:Name', bpm=None, key=None)
+    assert "/" not in out and ":" not in out
+    assert out == "MyBeatName_tagged"

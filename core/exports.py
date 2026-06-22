@@ -56,9 +56,16 @@ def export_tag_stem(
 
     tag_cache = tag_cache if tag_cache is not None else {}
     for p in placements:
+        if not Path(p.tag_path).exists():
+            continue                                  # skip missing tag files
         if p.tag_path not in tag_cache:
-            tag_cache[p.tag_path] = audio.load_audio(p.tag_path)
+            try:
+                tag_cache[p.tag_path] = audio.load_audio(p.tag_path)
+            except Exception:  # noqa: BLE001 - skip a bad tag, keep going
+                tag_cache[p.tag_path] = None
         tag = tag_cache[p.tag_path]
+        if tag is None:
+            continue
         if tag.channels != stem.channels:
             tag = tag.set_channels(stem.channels)
         stem = stem.overlay(tag, position=int(round(p.position_sec * 1000)))
