@@ -3,12 +3,19 @@
 ## v1.0.0
 
 ### Install
-1. Download the installer from the
-   [Releases page](https://github.com/papioshu/paperhands-beat-tools/releases).
-2. Run it and choose where to install.
-3. Open **Paperhand Beat Manager** from your Start menu or desktop.
-   (If Windows shows a "protected your PC" notice for a new app, choose
-   **More info → Run anyway**.)
+Pick one from the [Releases page](https://github.com/papioshu/paperhands-beat-tools/releases):
+
+- **Installer** — `PaperhandsBeatTools-Setup-1.0.1.exe`. Run it, choose where to
+  install, then open **Paperhand Beat Manager** from your Start menu/desktop.
+- **Portable** — `PaperhandBeatManager-Portable-1.0.1.zip`. Unzip anywhere and
+  run `PaperhandsBeatTools.exe`; it keeps its settings and sessions in a `Data`
+  folder next to the app, so it runs from a USB drive with no install.
+
+(If Windows shows a "protected your PC" notice for a new app, choose
+**More info → Run anyway**.)
+
+**Verify your download (optional, advanced):** each file has a matching
+`.sha256`. In PowerShell: `Get-FileHash .\<file> -Algorithm SHA256` and compare.
 
 ### First run
 1. Open **Settings** and set your **producer name**, your **tag library folder**,

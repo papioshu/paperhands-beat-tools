@@ -24,3 +24,15 @@ def test_db_backup_creates_copy(tmp_path):
 def test_within_blocks_traversal(tmp_path):
     assert paths.within(tmp_path, tmp_path / "previews" / "x.mp3")
     assert not paths.within(tmp_path, tmp_path / ".." / ".." / "etc" / "x")
+
+
+def test_verify_sha256(tmp_path):
+    import hashlib
+
+    from app import updater
+    f = tmp_path / "x.bin"
+    f.write_bytes(b"hello")
+    digest = hashlib.sha256(b"hello").hexdigest()
+    assert updater.verify_sha256(str(f), digest)
+    assert updater.verify_sha256(str(f), f"{digest}  x.bin")   # sha256sum format
+    assert not updater.verify_sha256(str(f), "deadbeef")

@@ -45,6 +45,29 @@ The app checks `app.version.UPDATE_REPO` for the latest GitHub release on launch
 and offers Download & Install of the `*-Setup-*.exe` asset (see `app/updater.py`).
 Publishing a tagged Release with the installer asset is the update.
 
+## Release notes template
+```
+## vX.Y.Z
+
+### Download
+- Installer: PaperhandsBeatTools-Setup-X.Y.Z.exe
+- Portable ZIP: PaperhandBeatManager-Portable-X.Y.Z.zip (no install; unzip & run)
+
+### What changed
+- …
+
+### Known issues
+- …
+
+### Verify your download (optional, advanced)
+SHA256 are in the .sha256 files attached to this release.
+PowerShell:  Get-FileHash .\<file> -Algorithm SHA256
+```
+`packaging\build.ps1` emits the installer, the portable ZIP, and a `.sha256` for
+each — upload all of them (incl. the `.sha256` files). The in-app updater
+verifies a download against the published `<asset>.sha256` and refuses on
+mismatch.
+
 ## Release-build checklist
 - [ ] `app/version.py` + `installer.iss` versions match.
 - [ ] `python -m pytest tests/ -q` green.

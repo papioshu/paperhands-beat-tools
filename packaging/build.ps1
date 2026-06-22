@@ -25,4 +25,24 @@ if (-not $iscc) {
 
 Write-Host "==> Building installer..." -ForegroundColor Cyan
 & $iscc "packaging\installer.iss"
-Write-Host "Done. Installer is in packaging\Output\" -ForegroundColor Green
+
+$ver = (Select-String -Path "app\version.py" -Pattern '__version__ = "([^"]+)"').Matches[0].Groups[1].Value
+$out = "packaging\Output"
+
+Write-Host "==> Building portable ZIP..." -ForegroundColor Cyan
+# A 'portable.txt' marker makes the app store its data beside the exe.
+New-Item -ItemType File -Force "dist\PaperhandsBeatTools\portable.txt" | Out-Null
+$zip = "$out\PaperhandBeatManager-Portable-$ver.zip"
+if (Test-Path $zip) { Remove-Item $zip }
+Compress-Archive -Path "dist\PaperhandsBeatTools\*" -DestinationPath $zip
+Remove-Item "dist\PaperhandsBeatTools\portable.txt"
+
+Write-Host "==> SHA256 checksums..." -ForegroundColor Cyan
+foreach ($f in @("$out\PaperhandsBeatTools-Setup-$ver.exe", $zip)) {
+    if (Test-Path $f) {
+        $h = (Get-FileHash $f -Algorithm SHA256).Hash.ToLower()
+        "$h  $(Split-Path $f -Leaf)" | Out-File -Encoding ascii "$f.sha256"
+        Write-Host "  $h  $(Split-Path $f -Leaf)"
+    }
+}
+Write-Host "Done. Installer + portable ZIP + checksums are in $out\" -ForegroundColor Green

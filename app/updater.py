@@ -67,11 +67,45 @@ def latest_installer_url(repo: str, timeout: float = 5.0) -> str:
 
 
 def download(url: str, dest: str, timeout: float = 60.0) -> str:
-    """Download ``url`` to ``dest`` (streamed). Returns dest."""
+    """Download ``url`` to ``dest`` (streamed), then verify its SHA256.
+
+    If the release publishes ``<url>.sha256``, the download is checked against it
+    and a mismatch raises (refusing a tampered/corrupt update). If no checksum is
+    published, the download proceeds unverified.
+    """
     req = urllib.request.Request(url, headers={"User-Agent": "PaperhandBeatTools"})
     with urllib.request.urlopen(req, timeout=timeout) as resp, open(dest, "wb") as fh:
         shutil.copyfileobj(resp, fh)
+    expected = _fetch_text(url + ".sha256", timeout=10.0)
+    if expected and not verify_sha256(dest, expected):
+        raise ValueError("Update failed verification (SHA256 mismatch).")
     return dest
+
+
+def sha256_file(path: str, _bufsize: int = 1 << 20) -> str:
+    import hashlib
+    h = hashlib.sha256()
+    with open(path, "rb") as f:
+        for chunk in iter(lambda: f.read(_bufsize), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+
+def verify_sha256(path: str, expected: str) -> bool:
+    """True if ``path``'s digest matches ``expected`` (a hex digest, optionally
+    followed by a filename as in ``sha256sum`` output)."""
+    if not expected:
+        return False
+    return sha256_file(path).lower() == expected.split()[0].lower()
+
+
+def _fetch_text(url: str, timeout: float = 10.0) -> str:
+    req = urllib.request.Request(url, headers={"User-Agent": "PaperhandBeatTools"})
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            return resp.read().decode("utf-8", "replace").strip()
+    except Exception:  # noqa: BLE001 - no published checksum -> unverified
+        return ""
 
 
 def check_for_update(current: str, repo: str, timeout: float = 5.0) -> Tuple[bool, str, str, str]:
