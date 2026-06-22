@@ -45,6 +45,7 @@ from app.services import importer, renamer
 from app.ui.autoplace_dialog import AutoPlaceDialog
 from app.ui.batch_rename_dialog import BatchRenameDialog
 from app.ui.collapsible import CollapsibleSection
+from app.ui.daw_window import DawModeWindow
 from app.ui.detail_panel import DetailPanel
 from app.ui.duplicates_dialog import DuplicatesDialog
 from app.ui.layers_panel import LayersPanel
@@ -182,10 +183,12 @@ class MainWindow(QMainWindow):
         batch_menu.addAction("Split Stems", self._split_stems)
         self.btn_batch.setMenu(batch_menu)
         self.btn_duplicates = QPushButton("Duplicates")
+        self.btn_daw = QPushButton("DAW Mode")
         tb.addWidget(self.btn_import)
         tb.addWidget(self.btn_scan)
         tb.addWidget(self.btn_batch)
         tb.addWidget(self.btn_duplicates)
+        tb.addWidget(self.btn_daw)
 
         self.search = QLineEdit()
         self.search.setPlaceholderText("Search title, genre, mood, key, tag…")
@@ -204,7 +207,9 @@ class MainWindow(QMainWindow):
         self.btn_import.clicked.connect(self._import_files)
         self.btn_scan.clicked.connect(self._scan_folder)
         self.btn_duplicates.clicked.connect(self._find_duplicates)
+        self.btn_daw.clicked.connect(self._open_daw_mode)
         self.btn_settings.clicked.connect(self._open_settings)
+        self._daw_windows = []
         self.search.textChanged.connect(lambda t: self.refresh_library(t))
 
     def _build_body(self) -> None:
@@ -633,6 +638,25 @@ class MainWindow(QMainWindow):
         self._set_exporting(False)
         self.progress.end(f"Batch complete — {ok} ok, {fail} failed",
                           folder=self._batch_folder)
+
+    def _open_daw_mode(self) -> None:
+        bid = self._current_beat_id
+        if bid is None:
+            self.statusBar().showMessage("Select a beat first.", 3000)
+            return
+        row = self.db.get_beat(bid)
+        if not row or not row["stems"]:
+            box = QMessageBox(self)
+            box.setWindowTitle("DAW Mode")
+            box.setText("This beat has no stems yet.")
+            box.setInformativeText("Split it into stems first to open DAW Mode?")
+            box.setStandardButtons(QMessageBox.Yes | QMessageBox.No)
+            if box.exec() == QMessageBox.Yes:
+                self._split_stems()
+            return
+        win = DawModeWindow(self.db, bid, self)
+        self._daw_windows.append(win)
+        win.show()
 
     # -- stem separation --------------------------------------------------
 

@@ -126,3 +126,10 @@ class AudioPlayer(QObject):
 
     def duration(self) -> int:
         return self._player.duration() if self.available else 0
+
+    def set_loop(self, on: bool) -> None:
+        if not self.available:
+            return
+        from PySide6.QtMultimedia import QMediaPlayer
+
+        self._player.setLoops(QMediaPlayer.Loops.Infinite if on else 1)
