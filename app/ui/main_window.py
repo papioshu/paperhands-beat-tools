@@ -124,7 +124,9 @@ class MainWindow(QMainWindow):
         self._update_duplicate_indicator()
 
         repo = config.update_repo()
-        if repo:                      # silent startup check when configured
+        # Silent startup check when configured; skipped under the offscreen test
+        # platform so the suite never makes network calls.
+        if repo and os.environ.get("QT_QPA_PLATFORM") != "offscreen":
             self.update_checker.check_async(repo, __version__)
 
     # -- construction ------------------------------------------------------

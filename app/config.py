@@ -72,8 +72,11 @@ def set_convert_master_to_wav(on: bool) -> None:
     _settings().setValue(_MASTER_WAV_KEY, "1" if on else "0")
 
 
-def update_repo(default: str = "") -> str:
+def update_repo(default: str = None) -> str:
     """GitHub 'owner/name' the app checks for updates (empty = disabled)."""
+    if default is None:
+        from app.version import UPDATE_REPO
+        default = UPDATE_REPO
     return str(_settings().value(_UPDATE_REPO_KEY, default) or default)
 
 
