@@ -52,7 +52,7 @@ def _window(tmp_path):
 def test_placing_a_tag_auditions_it(tmp_path):
     win = _window(tmp_path)
     played = []
-    win.player.play_tag = lambda path: played.append(path)
+    win.player.play_tag = lambda path, volume=1.0: played.append(path)
     win._place_tag_at_fraction(0.25)
     assert played == ["/tags/t.wav"]
     win.close()
@@ -81,7 +81,7 @@ def test_double_click_row_starts_playback(tmp_path):
 def test_preview_button_plays_active_tag(tmp_path):
     win = _window(tmp_path)
     played = []
-    win.player.play_tag = lambda path: played.append(path)
+    win.player.play_tag = lambda path, volume=1.0: played.append(path)
     win._preview_active_tag()
     assert played == ["/tags/t.wav"]
     win.close()
@@ -92,7 +92,7 @@ def test_live_monitor_fires_tags_as_playhead_crosses(tmp_path):
 
     win = _window(tmp_path)
     fired, ducked = [], []
-    win.player.play_tag = lambda path: fired.append(path)
+    win.player.play_tag = lambda path, volume=1.0: fired.append(path)
     win.player.duck = lambda db: ducked.append(db)
     win._placements = [Placement(10.0, "/t/a.wav"), Placement(50.0, "/t/b.wav")]
 
@@ -116,7 +116,7 @@ def test_live_monitor_resync_on_seek_does_not_fire(tmp_path):
 
     win = _window(tmp_path)
     fired = []
-    win.player.play_tag = lambda path: fired.append(path)
+    win.player.play_tag = lambda path, volume=1.0: fired.append(path)
     win.player.duck = lambda db: None
     win._placements = [Placement(10.0, "/t/a.wav")]
     win._last_pos_sec = 0.0

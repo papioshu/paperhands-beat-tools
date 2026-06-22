@@ -163,6 +163,29 @@ def test_batch_autoplace_applies_to_all_selected(tmp_path):
     win.close()
 
 
+def test_layers_created_and_persist(tmp_path):
+    import json
+
+    win = _window_with_beat(tmp_path)
+    win._active_tag = "/tags/Oni.wav"
+    win._place_tag_at_fraction(0.2)
+    win._active_tag = "/tags/Paper.wav"
+    win._place_tag_at_fraction(0.6)
+
+    # one layer per distinct tag
+    assert set(win._layers.keys()) == {"/tags/Oni.wav", "/tags/Paper.wav"}
+
+    # mute one layer -> persisted, and reflected in audibility
+    win._on_layer_changed("/tags/Oni.wav", {"enabled": True, "mute": True,
+                                            "solo": False, "volume_db": 0.0, "pan": 0.0})
+    assert not win._layer_active("/tags/Oni.wav")
+    assert win._layer_active("/tags/Paper.wav")
+
+    saved = json.loads(win.db.get_beat(win._current_beat_id)["layers"])
+    assert saved["/tags/Oni.wav"]["mute"] is True
+    win.close()
+
+
 def test_clear_removes_all(tmp_path):
     win = _window_with_beat(tmp_path)
     win._place_tag_at_fraction(0.3)

@@ -51,12 +51,13 @@ class AudioPlayer(QObject):
 
     # -- tag audition + ducking -------------------------------------------
 
-    def play_tag(self, path: str) -> None:
+    def play_tag(self, path: str, volume: float = 1.0) -> None:
         """Audition a tag through the separate channel (over the beat)."""
         if not self.available or not path:
             return
         from PySide6.QtCore import QUrl
 
+        self._tag_out.setVolume(max(0.0, min(1.0, volume)))
         self._tag_player.setSource(QUrl.fromLocalFile(path))
         self._tag_player.play()
 

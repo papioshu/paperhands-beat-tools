@@ -64,11 +64,25 @@ def apply_placements(
     placements: Sequence[Placement],
     tag_cache: Dict[str, object],
     duck_db: float,
+    layers: Dict[str, dict] = None,
 ):
-    """Apply every placement to the beat, in order, ducking under each tag."""
+    """Apply every (audible) placement to the beat, ducking under each tag.
+
+    When ``layers`` is given (tag_path -> {volume_db, pan, mute, solo, enabled}),
+    muted/disabled/un-soloed layers are skipped and each tag gets its layer's
+    gain + pan before overlay. With no layers it behaves exactly as before.
+    """
+    from .layers import filter_placements
+
     result = beat
-    for p in placements:
+    for p in filter_placements(placements, layers or {}):
         tag = tag_cache[p.tag_path]
+        layer = (layers or {}).get(p.tag_path)
+        if layer:
+            if layer.get("volume_db"):
+                tag = tag.apply_gain(layer["volume_db"])
+            if layer.get("pan"):
+                tag = tag.pan(max(-1.0, min(1.0, layer["pan"])))
         result = duck_and_overlay(result, tag, int(round(p.position_sec * 1000)), duck_db)
     return result
 

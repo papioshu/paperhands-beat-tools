@@ -45,6 +45,7 @@ from app.ui.autoplace_dialog import AutoPlaceDialog
 from app.ui.batch_rename_dialog import BatchRenameDialog
 from app.ui.detail_panel import DetailPanel
 from app.ui.duplicates_dialog import DuplicatesDialog
+from app.ui.layers_panel import LayersPanel
 from app.ui.progress_panel import ProgressPanel
 from app.ui.player import AudioPlayer
 from app.ui.settings_dialog import SettingsDialog
@@ -63,6 +64,7 @@ from app.version import __version__
 from core import artwork as core_artwork
 from core import exports as core_exports
 from core import fingerprint as core_fingerprint
+from core import layers as core_layers
 from core import metadata as core_metadata
 from core import naming as core_naming
 from core import pipeline
@@ -99,6 +101,7 @@ class MainWindow(QMainWindow):
         # Tag placement state (Phase 5)
         self._active_tag = None
         self._placements: list = []          # list[core.models.Placement]
+        self._layers: dict = {}              # tag_path -> layer props
         self._beat_duration_sec = 0.0
         self._current_path = None
         self._current_beat_id = None
@@ -218,11 +221,16 @@ class MainWindow(QMainWindow):
         # connected), so capture that initial selection now.
         self._active_tag = self.tag_panel.active_tag()
 
+        self.layers_panel = LayersPanel()
+        self.layers_panel.layer_changed.connect(self._on_layer_changed)
+
         right = QSplitter(Qt.Vertical)
         right.addWidget(self.detail)
         right.addWidget(self.tag_panel)
+        right.addWidget(self.layers_panel)
         right.setStretchFactor(0, 3)
         right.setStretchFactor(1, 2)
+        right.setStretchFactor(2, 1)
 
         # Scroll the (tall) right pane so it can shrink — otherwise its large
         # minimum height overflows the window and clips the player bar / log.
@@ -523,6 +531,7 @@ class MainWindow(QMainWindow):
         self._current_beat_id = row["id"]
         self._beat_duration_sec = row["duration_sec"] or 0.0
         self._placements = self._load_placements(row)
+        self._layers = self._load_layers(row)
         self._fired_tags = set()
         self._last_pos_sec = 0.0
         self.player.unduck()
@@ -588,8 +597,9 @@ class MainWindow(QMainWindow):
         for i, p in enumerate(self._placements):
             if i not in self._fired_tags and self._last_pos_sec < p.position_sec <= pos_sec:
                 self._fired_tags.add(i)
-                self.player.duck(self._live_duck_db)
-                self.player.play_tag(p.tag_path)
+                if self._layer_active(p.tag_path):   # respect mute/solo/enable
+                    self.player.duck(self._live_duck_db)
+                    self.player.play_tag(p.tag_path, self._layer_volume(p.tag_path))
         self._last_pos_sec = pos_sec
 
     def _seek_fraction(self, fraction: float) -> None:
@@ -644,7 +654,8 @@ class MainWindow(QMainWindow):
         self._placements.append(Placement(pos, self._active_tag))
         self._placements.sort(key=lambda p: p.position_sec)
         self._refresh_markers(save=True)
-        self.player.play_tag(self._active_tag)   # instant audition on placement
+        if self._layer_active(self._active_tag):  # instant audition on placement
+            self.player.play_tag(self._active_tag, self._layer_volume(self._active_tag))
 
     def _remove_marker(self, index: int) -> None:
         if 0 <= index < len(self._placements):
@@ -680,12 +691,23 @@ class MainWindow(QMainWindow):
         except (json.JSONDecodeError, TypeError):
             return []
 
+    def _load_layers(self, row) -> dict:
+        raw = row["layers"]
+        if not raw:
+            return {}
+        try:
+            data = json.loads(raw)
+            return data if isinstance(data, dict) else {}
+        except (json.JSONDecodeError, TypeError):
+            return {}
+
     def _save_placements(self) -> None:
         if self._current_beat_id is None:
             return
         data = json.dumps([{"pos": p.position_sec, "tag": p.tag_path}
                            for p in self._placements])
-        self.db.update_beat(self._current_beat_id, placements=data)
+        self.db.update_beat(self._current_beat_id, placements=data,
+                            layers=json.dumps(self._layers))
 
     def _on_crop_changed(self, start: float, end: float) -> None:
         if self._beat_duration_sec > 0:
@@ -697,8 +719,33 @@ class MainWindow(QMainWindow):
         fractions = [p.position_sec / dur for p in self._placements] if dur else []
         self.waveform.set_markers(fractions)
         self.tag_panel.set_placement_count(len(self._placements))
+        self._sync_layers()
         if save:
             self._save_placements()
+
+    def _sync_layers(self) -> None:
+        """Ensure each placed tag has a layer (keep existing props; drop unused)."""
+        placed = []
+        for p in self._placements:
+            if p.tag_path not in placed:
+                placed.append(p.tag_path)
+        self._layers = {t: self._layers.get(t, core_layers.default_layer()) for t in placed}
+        self.layers_panel.set_layers(self._layers)
+
+    def _on_layer_changed(self, tag_path: str, props: dict) -> None:
+        self._layers[tag_path] = props
+        self._save_placements()
+
+    def _layer_active(self, tag_path: str) -> bool:
+        if not self._layers:
+            return True
+        return tag_path in core_layers.active_tag_paths(self._layers)
+
+    def _layer_volume(self, tag_path: str) -> float:
+        layer = self._layers.get(tag_path)
+        if not layer:
+            return 1.0
+        return 10 ** (float(layer.get("volume_db", 0.0)) / 20.0)
 
     def _beat_context(self, row):
         """(structure, drop, hook) for a beat row, for auto-placement."""
@@ -841,10 +888,12 @@ class MainWindow(QMainWindow):
         src = self._current_path
         art = row["artwork_path"]
         cover = str(art) if art and Path(art).exists() else None
+        layers = dict(self._layers)
 
         def work():
             pipeline.export_with_placements(
-                src, placements, str(out_path), cfg, crop=crop, tags=tags, cover=cover)
+                src, placements, str(out_path), cfg, crop=crop, tags=tags,
+                cover=cover, layers=layers)
             return str(out_path)
 
         self._update_manifest(row, tagged_preview=str(out_path))

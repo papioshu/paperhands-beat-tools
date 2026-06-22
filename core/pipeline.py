@@ -118,6 +118,7 @@ def export_with_placements(
     crop: Optional[tuple] = None,
     tags: Optional[Dict[str, str]] = None,
     cover: Optional[str] = None,
+    layers: Optional[Dict[str, dict]] = None,
 ) -> str:
     """Mix an explicit list of placements onto a beat and export it.
 
@@ -140,7 +141,7 @@ def export_with_placements(
         if p.tag_path not in tag_cache:
             tag_cache[p.tag_path] = audio.load_audio(p.tag_path)
 
-    mixed = audio.apply_placements(beat, placements, tag_cache, config.duck_db)
+    mixed = audio.apply_placements(beat, placements, tag_cache, config.duck_db, layers)
 
     if crop is not None:
         start_ms = max(0, int(crop[0] * 1000))
