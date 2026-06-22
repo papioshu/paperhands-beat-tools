@@ -188,7 +188,7 @@ What it does:
   remove it). *Auto-place* lays down default interval tags to tweak. *Export
   Tagged* renders the beat through the same engine the CLI uses, into `./output`.
 
-The look is a violet / lime / gunmetal-grey theme; see `docs/screenshots/`.
+The look is a violet / lime / gunmetal-grey theme.
 
 ---
 
