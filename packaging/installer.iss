@@ -4,7 +4,7 @@
 
 #define MyAppName "Paperhand Beat Manager"
 #define MyAppExeName "PaperhandsBeatTools.exe"
-#define MyAppVersion "1.0.0"
+#define MyAppVersion "1.0.1"
 #define MyAppPublisher "Paperhand"
 #define MyAppURL "https://github.com/papioshu/paperhands-beat-tools"
 

@@ -23,6 +23,10 @@ datas, binaries, hiddenimports = [], [], []
 for pkg in (
     "librosa", "soundfile", "soxr", "audioread", "pooch", "lazy_loader",
     "numba", "llvmlite", "scipy", "sklearn", "pydub", "joblib", "PIL",
+    # Stem separation (bundled): Demucs + PyTorch and their deps. Model weights
+    # are NOT bundled — they download once on first split.
+    "torch", "torchaudio", "demucs", "julius", "openunmix", "dora", "einops",
+    "omegaconf", "antlr4", "lameenc", "treetable",
 ):
     try:
         d, b, h = collect_all(pkg)
