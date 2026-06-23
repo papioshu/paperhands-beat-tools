@@ -123,7 +123,6 @@ class MainWindow(QMainWindow):
         # Live tag audition during playback
         self._fired_tags: set = set()
         self._last_pos_sec = 0.0
-        self._live_duck_db = TaggingConfig().duck_db
 
         self._build_toolbar()
         self._build_body()
@@ -360,7 +359,6 @@ class MainWindow(QMainWindow):
         self.player.playing_changed.connect(
             lambda playing: self.btn_play.setText("Pause" if playing else "Play")
         )
-        self.player.tag_finished.connect(self.player.unduck)
         self.seek.sliderMoved.connect(self.player.set_position)
         self.waveform.seek_requested.connect(self._seek_fraction)
         self.waveform.tag_placed.connect(self._place_tag_at_fraction)
@@ -862,7 +860,6 @@ class MainWindow(QMainWindow):
         self._layers = self._load_layers(row)
         self._fired_tags = set()
         self._last_pos_sec = 0.0
-        self.player.unduck()
         self._refresh_markers()
 
         # Waveform peaks (if analyzed)
@@ -926,7 +923,6 @@ class MainWindow(QMainWindow):
             if i not in self._fired_tags and self._last_pos_sec < p.position_sec <= pos_sec:
                 self._fired_tags.add(i)
                 if self._layer_active(p.tag_path):   # respect mute/solo/enable
-                    self.player.duck(self._live_duck_db)
                     self.player.play_tag(p.tag_path, self._layer_volume(p.tag_path))
         self._last_pos_sec = pos_sec
 

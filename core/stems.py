@@ -10,16 +10,10 @@ GUI offers a one-click install via ``install_command()`` when it's missing.
 
 from __future__ import annotations
 
-import glob
 import importlib.util
 import os
-import shutil
-import subprocess
 import sys
-import tempfile
 from typing import Dict, List, Optional
-
-DEFAULT_STEMS = ["vocals", "drums", "bass", "other"]
 
 
 class StemEngine:
@@ -34,19 +28,6 @@ class StemEngine:
     def install_command(self) -> Optional[List[str]]:
         """pip command to install this engine, or None if not installable."""
         return None
-
-
-def _collect_stems(search_dir: str, out_dir: str) -> Dict[str, str]:
-    """Find the standard stems anywhere under ``search_dir`` and copy to out_dir."""
-    os.makedirs(out_dir, exist_ok=True)
-    found: Dict[str, str] = {}
-    for stem in DEFAULT_STEMS:
-        hits = glob.glob(os.path.join(search_dir, "**", f"{stem}.*"), recursive=True)
-        if hits:
-            dst = os.path.join(out_dir, f"{stem}.wav")
-            shutil.copy(hits[0], dst)
-            found[stem] = dst
-    return found
 
 
 class DemucsEngine(StemEngine):

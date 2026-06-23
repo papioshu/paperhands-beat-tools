@@ -22,17 +22,6 @@ def _app():
     return QApplication.instance() or QApplication([])
 
 
-def test_duck_lowers_then_restores_volume():
-    _app()
-    p = AudioPlayer()
-    assert p.available
-    base = p._out.volume()
-    p.duck(6.0)                       # 6 dB ~ half amplitude
-    assert p._out.volume() == pytest.approx(base * 0.5, abs=0.02)
-    p.unduck()
-    assert p._out.volume() == pytest.approx(base, abs=0.001)
-
-
 def _window(tmp_path):
     beat = tmp_path / "Night.mp3"
     beat.write_bytes(b"\x00")
@@ -91,9 +80,8 @@ def test_live_monitor_fires_tags_as_playhead_crosses(tmp_path):
     from core.models import Placement
 
     win = _window(tmp_path)
-    fired, ducked = [], []
+    fired = []
     win.player.play_tag = lambda path, volume=1.0: fired.append(path)
-    win.player.duck = lambda db: ducked.append(db)
     win._placements = [Placement(10.0, "/t/a.wav"), Placement(50.0, "/t/b.wav")]
 
     # Step continuously like real playback (~0.4s updates, never a >1s jump).
@@ -103,7 +91,6 @@ def test_live_monitor_fires_tags_as_playhead_crosses(tmp_path):
         t = round(t + 0.4, 1)
         win._monitor_live_tags(t)
     assert fired == ["/t/a.wav"]           # only the 10s tag crossed
-    assert ducked == [win._live_duck_db]
     while t < 51.0:
         t = round(t + 0.4, 1)
         win._monitor_live_tags(t)
