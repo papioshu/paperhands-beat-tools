@@ -27,7 +27,8 @@ class AnalysisRunnable(QRunnable):
         try:
             import json
 
-            from core import audio, detection, fingerprint, mood, structure, waveform
+            from core import (audio, detection, fingerprint, genre, mood,
+                              structure, waveform)
 
             seg = audio.load_audio(self.file_path)
             samples, sr = audio.to_mono_float(seg)
@@ -60,6 +61,20 @@ class AnalysisRunnable(QRunnable):
                 mood_suggested, _ = mood.detect_mood(samples, sr, det.key, det.bpm)
             except Exception:  # noqa: BLE001 - mood is best-effort
                 mood_suggested = None
+            try:
+                detected_genre, _ = genre.detect_genre(
+                    self.file_path, samples, sr, det.key, det.bpm)
+            except Exception:  # noqa: BLE001 - genre is best-effort
+                detected_genre = None
+            try:
+                from pathlib import Path
+
+                from core import embedded_art
+                art_dir = Path(self.peaks_path).resolve().parent.parent / "artwork"
+                cover = embedded_art.extract_cover(
+                    self.file_path, str(art_dir), Path(self.file_path).stem)
+            except Exception:  # noqa: BLE001 - artwork is best-effort
+                cover = None
 
             result = {
                 "bpm": det.bpm,
@@ -77,7 +92,10 @@ class AnalysisRunnable(QRunnable):
                 "hook_start": hook[0] if hook else None,
                 "hook_end": hook[1] if hook else None,
                 "mood_suggested": mood_suggested,
+                "genre": detected_genre,
             }
+            if cover:
+                result["artwork_path"] = cover   # only when actually extracted
             self.signals.beat_analyzed.emit(self.beat_id, result)
         except Exception as exc:  # noqa: BLE001 - report, never crash the pool
             self.signals.error.emit(self.beat_id, str(exc))

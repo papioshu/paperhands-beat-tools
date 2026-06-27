@@ -23,7 +23,7 @@ _EDITABLE = {
     "file_path", "filename", "placements",
     "bpm_confidence", "key_confidence", "bpm_candidates", "key_candidates",
     "fingerprint", "structure", "drop_sec", "hook_start", "hook_end",
-    "mood_suggested", "artwork_path", "layers", "stems",
+    "mood_suggested", "artwork_path", "layers", "stems", "ignored",
 }
 
 # Columns added after the original schema shipped; applied as additive migrations
@@ -43,6 +43,7 @@ _MIGRATIONS = {
     "artwork_path": "ALTER TABLE beats ADD COLUMN artwork_path TEXT",
     "layers": "ALTER TABLE beats ADD COLUMN layers TEXT",
     "stems": "ALTER TABLE beats ADD COLUMN stems TEXT",
+    "ignored": "ALTER TABLE beats ADD COLUMN ignored INTEGER DEFAULT 0",
 }
 
 _SCHEMA = """
@@ -107,11 +108,14 @@ class Database:
         self.conn.commit()
 
     def _migrate(self) -> None:
-        """Apply additive column migrations to an existing beats table."""
+        """Apply additive column migrations to existing tables."""
         existing = {row["name"] for row in self.conn.execute("PRAGMA table_info(beats)")}
         for column, ddl in _MIGRATIONS.items():
             if column not in existing:
                 self.conn.execute(ddl)
+        pt = {row["name"] for row in self.conn.execute("PRAGMA table_info(producer_tags)")}
+        if "native_bpm" not in pt:
+            self.conn.execute("ALTER TABLE producer_tags ADD COLUMN native_bpm REAL")
 
     def close(self) -> None:
         self.conn.close()
@@ -304,7 +308,7 @@ class Database:
             "SELECT * FROM producer_tags WHERE id = ?", (tag_id,)).fetchone()
 
     def update_tag_file(self, tag_id: int, **fields) -> None:
-        allowed = {"name", "category", "enabled", "favorite"}
+        allowed = {"name", "category", "enabled", "favorite", "native_bpm"}
         cols = {k: v for k, v in fields.items() if k in allowed}
         if not cols:
             return

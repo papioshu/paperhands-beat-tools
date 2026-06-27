@@ -42,11 +42,12 @@ class AutoPlaceDialog(QDialog):
 
         self.mode = QComboBox()
         self.mode.addItems(autoplace.MODES)
+        self.mode.setCurrentText("fixed")   # default: place every <interval> seconds
         form.addRow("Mode", self.mode)
 
         self.interval = QDoubleSpinBox()
         self.interval.setRange(5, 600)
-        self.interval.setValue(40)
+        self.interval.setValue(30)          # default: every 30s unless user changes it
         self.interval.setSuffix(" s")
         form.addRow("Interval", self.interval)
 

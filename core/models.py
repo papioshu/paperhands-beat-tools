@@ -17,10 +17,14 @@ class Placement:
     Attributes:
         position_sec: When the tag starts, in seconds from the beat's start.
         tag_path: Absolute path to the tag audio file to overlay here.
+        stretch_ratio: Time-stretch applied to the tag here (1.0 = none, >1 faster).
+        preserve_pitch: Keep pitch when stretching (False = tape/pitch-shift).
     """
 
     position_sec: float
     tag_path: str
+    stretch_ratio: float = 1.0
+    preserve_pitch: bool = True
 
 
 @dataclass(frozen=True)

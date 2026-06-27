@@ -20,6 +20,7 @@ from PySide6.QtCore import Qt, QThreadPool
 from PySide6.QtGui import QIcon, QPixmap
 from PySide6.QtWidgets import (
     QAbstractItemView,
+    QCheckBox,
     QFileDialog,
     QFrame,
     QHBoxLayout,
@@ -45,6 +46,8 @@ from app.db import Database
 from app.services import importer, renamer
 from app.ui.autoplace_dialog import AutoPlaceDialog
 from app.ui.batch_rename_dialog import BatchRenameDialog
+from app.ui.batch_tag_dialog import BatchTagDialog
+from app.ui.stretch_editor_dialog import StretchEditorDialog
 from app.branding import APP_NAME, icon_path, logo_path
 from app.ui.collapsible import CollapsibleSection
 from app.ui.daw_window import DawModeWindow
@@ -75,7 +78,10 @@ from app.version import __version__
 from core import artwork as core_artwork
 from core import exports as core_exports
 from core import fingerprint as core_fingerprint
+from core import autoplace as core_autoplace
 from core import layers as core_layers
+from core import stretch as core_stretch
+from core import manifest as core_manifest
 from core import stems as core_stems
 from core import metadata as core_metadata
 from core import naming as core_naming
@@ -114,6 +120,7 @@ class MainWindow(QMainWindow):
         # Tag placement state (Phase 5)
         self._active_tag = None
         self._placements: list = []          # list[core.models.Placement]
+        self._beat_bpm = None                # current beat's BPM (for tempo match)
         self._layers: dict = {}              # tag_path -> layer props
         self._beat_duration_sec = 0.0
         self._current_path = None
@@ -190,8 +197,10 @@ class MainWindow(QMainWindow):
         self.btn_batch = QPushButton("Batch ▾")
         batch_menu = QMenu(self.btn_batch)
         batch_menu.addAction("Detect BPM / Key", self._batch_detect)
+        batch_menu.addAction("Rescan Library (fill missing)", self._rescan_library)
         batch_menu.addAction("Rename Files…", self._batch_rename)
         batch_menu.addAction("Auto-Place Tags…", self._on_autoplace)
+        batch_menu.addAction("Batch Tag (manual times)…", self._batch_tag)
         batch_menu.addAction("Export Tagged Previews", self._batch_export_previews)
         batch_menu.addAction("Generate Buyer Packages", self._batch_buyer_packages)
         batch_menu.addAction("Split Stems", self._split_stems)
@@ -260,6 +269,7 @@ class MainWindow(QMainWindow):
             hh.setSectionResizeMode(i, QHeaderView.ResizeToContents)
         self.table.itemSelectionChanged.connect(self._on_selection)
         self.table.itemDoubleClicked.connect(self._on_row_double_clicked)
+        self.table.itemChanged.connect(self._sync_select_all)
         self.split.addWidget(self.table)
 
         self.detail = DetailPanel()
@@ -275,6 +285,9 @@ class MainWindow(QMainWindow):
         self.tag_panel.place_mode_changed.connect(self._on_place_mode)
         self.tag_panel.crop_mode_changed.connect(self._on_crop_mode)
         self.tag_panel.autoplace_requested.connect(self._on_autoplace)
+        self.tag_panel.stretch_changed.connect(self._update_stretch_display)
+        self.tag_panel.preview_stretch_requested.connect(self._preview_stretch)
+        self.tag_panel.stretch_editor_requested.connect(self._open_stretch_editor)
         self.tag_panel.tag_at_drop_requested.connect(self._tag_at_drop)
         self.tag_panel.tag_at_hook_requested.connect(self._tag_at_hook)
         self.tag_panel.clear_requested.connect(self._on_clear_tags)
@@ -308,6 +321,14 @@ class MainWindow(QMainWindow):
 
         self.split.setStretchFactor(0, 3)
         self.split.setStretchFactor(1, 2)
+
+        top = QHBoxLayout()
+        self.select_all = QCheckBox("Select all")
+        self.select_all.setTristate(True)
+        self.select_all.clicked.connect(self._on_select_all_clicked)
+        top.addWidget(self.select_all)
+        top.addStretch(1)
+        root.addLayout(top)
         root.addWidget(self.split, 1)
 
         self.progress = ProgressPanel()
@@ -388,11 +409,15 @@ class MainWindow(QMainWindow):
             for col, val in enumerate(values):
                 item = QTableWidgetItem(str(val))
                 item.setData(Qt.UserRole, b["id"])
+                if col == 0:  # checkbox lives on the Title cell
+                    item.setFlags(item.flags() | Qt.ItemIsUserCheckable)
+                    item.setCheckState(Qt.Unchecked)
                 if missing and col == 5:
                     item.setForeground(Qt.yellow)
                 self.table.setItem(r, col, item)
             row_for_id[b["id"]] = r
         self.table.blockSignals(False)
+        self._sync_select_all()
         self.statusBar().showMessage(f"{len(beats)} beat(s)")
 
         if keep_id in row_for_id:
@@ -407,6 +432,23 @@ class MainWindow(QMainWindow):
         d = base / ".peaks"
         d.mkdir(parents=True, exist_ok=True)
         return d
+
+    def _rescan_library(self) -> None:
+        """Re-analyze present beats that are missing metadata (bpm/key/genre)."""
+        missing = [
+            b for b in self.db.list_beats()
+            if not importer.is_missing(b) and (
+                b["bpm"] is None or not b["key"] or not b["genre"]
+                or b["analysis_status"] != "done")
+        ]
+        if not missing:
+            self.statusBar().showMessage("All present beats already have metadata.", 3000)
+            return
+        for b in missing:
+            self.db.update_beat(b["id"], analysis_status="pending")
+        self.statusBar().showMessage(
+            f"Rescanning {len(missing)} beat(s) for missing metadata…", 4000)
+        self.analyze_pending()   # _on_analyzed refreshes each folder's beats.json
 
     def analyze_pending(self) -> None:
         """Queue background analysis for every un-analyzed, present beat."""
@@ -437,6 +479,7 @@ class MainWindow(QMainWindow):
         for folder in folders:
             try:
                 total += importer.scan_folder(self.db, folder)
+                core_manifest.refresh_under(self.db, folder)
             except NotADirectoryError:
                 continue
         if total:
@@ -447,7 +490,7 @@ class MainWindow(QMainWindow):
     def _update_duplicate_indicator(self) -> None:
         """Light up the Duplicates button (orange + count) when dupes exist."""
         items = [(b["id"], b["fingerprint"]) for b in self.db.list_beats()
-                 if b["fingerprint"]]
+                 if b["fingerprint"] and not b["ignored"]]
         groups = core_fingerprint.group_duplicates(items)
         if groups:
             self.btn_duplicates.setText(f"Duplicates ({len(groups)})")
@@ -465,6 +508,10 @@ class MainWindow(QMainWindow):
                              f"Analyzing {n} of {self._analysis_total}: {name}")
 
     def _on_analyzed(self, beat_id: int, result: dict) -> None:
+        # Don't let an embedded cover overwrite artwork the user already set.
+        existing = self.db.get_beat(beat_id)
+        if existing is not None and existing["artwork_path"]:
+            result.pop("artwork_path", None)
         self.db.update_beat(beat_id, **result)
         row = self.db.get_beat(beat_id)
         extra = []
@@ -474,6 +521,8 @@ class MainWindow(QMainWindow):
             extra.append(result["key"])
         tail = f"  ({', '.join(extra)})" if extra else ""
         self.progress.log_line(f"✓ {row['filename'] if row else beat_id}{tail}")
+        if row:
+            core_manifest.refresh_for_beat(self.db, row["file_path"])
         self._refresh_row_or_table(beat_id)
 
     def _on_analysis_error(self, beat_id: int, message: str) -> None:
@@ -527,13 +576,55 @@ class MainWindow(QMainWindow):
         items = self.table.selectedItems()
         return items[0].data(Qt.UserRole) if items else None
 
+    def _checked_beat_ids(self) -> list:
+        ids = []
+        for r in range(self.table.rowCount()):
+            it = self.table.item(r, 0)
+            if it is not None and it.checkState() == Qt.Checked:
+                ids.append(it.data(Qt.UserRole))
+        return ids
+
     def _selected_beat_ids(self) -> list:
+        # Checked rows win; fall back to the highlighted selection when none are.
+        checked = self._checked_beat_ids()
+        if checked:
+            return checked
         ids = []
         for item in self.table.selectedItems():
             bid = item.data(Qt.UserRole)
             if bid not in ids:
                 ids.append(bid)
         return ids
+
+    def _on_select_all_clicked(self) -> None:
+        want = Qt.Checked if self._checked_beat_ids() != self._all_beat_ids() \
+            else Qt.Unchecked
+        self.table.blockSignals(True)
+        for r in range(self.table.rowCount()):
+            it = self.table.item(r, 0)
+            if it is not None:
+                it.setCheckState(want)
+        self.table.blockSignals(False)
+        self._sync_select_all()
+
+    def _all_beat_ids(self) -> list:
+        return [self.table.item(r, 0).data(Qt.UserRole)
+                for r in range(self.table.rowCount())
+                if self.table.item(r, 0) is not None]
+
+    def _sync_select_all(self, item=None) -> None:
+        if item is not None and item.column() != 0:
+            return
+        total = self.table.rowCount()
+        checked = len(self._checked_beat_ids())
+        self.select_all.blockSignals(True)
+        if total == 0 or checked == 0:
+            self.select_all.setCheckState(Qt.Unchecked)
+        elif checked == total:
+            self.select_all.setCheckState(Qt.Checked)
+        else:
+            self.select_all.setCheckState(Qt.PartiallyChecked)
+        self.select_all.blockSignals(False)
 
     def _batch_rename(self) -> None:
         ids = self._selected_beat_ids()
@@ -664,6 +755,23 @@ class MainWindow(QMainWindow):
         self._set_exporting(False)
         self.progress.end(f"Batch complete — {ok} ok, {fail} failed",
                           folder=self._batch_folder)
+        if self._batch_folder and Path(self._batch_folder).name == "previews":
+            self._write_previews_manifest()
+
+    def _write_previews_manifest(self) -> None:
+        """Write/refresh previews.json listing only the generated tagged previews."""
+        folder = self._export_subdir("previews")
+        files = sorted(folder.glob("*_tagged.mp3"))
+        data = {
+            "count": len(files),
+            "previews": [{"file": f.name, "size_bytes": f.stat().st_size,
+                          "modified": int(f.stat().st_mtime)} for f in files],
+        }
+        try:
+            (folder / "previews.json").write_text(
+                json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
+        except OSError:  # ponytail: read-only export dir — skip
+            pass
 
     def _create_session(self, row, stems: dict) -> None:
         """Auto-create a DAW Mode session when stems are generated."""
@@ -814,7 +922,7 @@ class MainWindow(QMainWindow):
 
     def _find_duplicates(self) -> None:
         items = [(b["id"], b["fingerprint"]) for b in self.db.list_beats()
-                 if b["fingerprint"]]
+                 if b["fingerprint"] and not b["ignored"]]
         groups_ids = core_fingerprint.group_duplicates(items)
         if not groups_ids:
             self.statusBar().showMessage(
@@ -823,11 +931,11 @@ class MainWindow(QMainWindow):
         groups = [[self.db.get_beat(i) for i in g] for g in groups_ids]
         dlg = DuplicatesDialog(self.db, groups, self)
         dlg.exec()
-        if dlg.removed:
+        if dlg.removed or dlg.ignored:
             self.refresh_library(self.search.text())
             self._update_duplicate_indicator()
             self.statusBar().showMessage(
-                f"Removed {dlg.removed} duplicate(s) from library", 4000)
+                f"Removed {dlg.removed}, ignored {dlg.ignored} duplicate(s)", 4000)
 
     def _on_selection(self) -> None:
         bid = self._selected_beat_id()
@@ -856,6 +964,8 @@ class MainWindow(QMainWindow):
         self._current_beat_id = row["id"]
         recovery.note_open(str(self._export_base()), row["id"])
         self._beat_duration_sec = row["duration_sec"] or 0.0
+        self._beat_bpm = row["bpm"]
+        self._update_stretch_display()
         self._placements = self._load_placements(row)
         self._layers = self._load_layers(row)
         self._fired_tags = set()
@@ -970,12 +1080,76 @@ class MainWindow(QMainWindow):
             self.waveform.set_mode("place" if self.tag_panel.place_mode() else "seek")
             self.statusBar().showMessage("Ready")
 
+    # -- tempo-aware stretch ----------------------------------------------
+
+    def _compute_stretch(self) -> tuple:
+        """(ratio, preserve_pitch) for the active tag against the current beat."""
+        s = self.tag_panel.stretch_settings()
+        pp = s["preserve_pitch"]
+        if not s["match"]:
+            return 1.0, pp
+        if s["mode"] == "manual":
+            return s["manual_ratio"], pp
+        res = core_stretch.compute(self._beat_bpm, s["native_bpm"], s["mode"])
+        return res["ratio"], pp
+
+    def _update_stretch_display(self) -> None:
+        s = self.tag_panel.stretch_settings()
+        if not s["match"]:
+            self.tag_panel.set_stretch_display("Stretch: off")
+            return
+        if s["mode"] == "manual":
+            self.tag_panel.set_stretch_display(f"Stretch: {s['manual_ratio']:.2f}× (manual)")
+            return
+        if not self._beat_bpm or not s["native_bpm"]:
+            self.tag_panel.set_stretch_display("Stretch: set Tag BPM + analyze beat")
+            return
+        res = core_stretch.compute(self._beat_bpm, s["native_bpm"], s["mode"])
+        txt = f"Stretch: {res['ratio']:.2f}×"
+        if not res["in_limits"]:
+            txt += "  ⚠ out of range"
+            if res["suggestion"]:
+                txt += f" — try {res['suggestion']}-time"
+        self.tag_panel.set_stretch_display(txt)
+
+    def _preview_stretch(self) -> None:
+        if not self._active_tag:
+            self.statusBar().showMessage("Select a tag to preview.", 2000)
+            return
+        ratio, pp = self._compute_stretch()
+        try:
+            import tempfile
+
+            from core import audio as core_audio
+            seg = core_stretch.stretch_segment(
+                core_audio.load_audio(self._active_tag), ratio, pp)
+            tmp = str(Path(tempfile.gettempdir()) / "ph_tag_preview.wav")
+            seg.export(tmp, format="wav")
+        except Exception as exc:  # noqa: BLE001 - preview is best-effort
+            self.statusBar().showMessage(f"Preview failed: {exc}", 3000)
+            return
+        self.player.play_tag(tmp, self._layer_volume(self._active_tag))
+
+    def _open_stretch_editor(self) -> None:
+        if not self._placements:
+            self.statusBar().showMessage("No placed tags to edit.", 2500)
+            return
+        dlg = StretchEditorDialog(self._placements, self)
+        if not dlg.exec():
+            return
+        self._placements = [
+            Placement(p.position_sec, p.tag_path, ratio, pp)
+            for p, (ratio, pp) in zip(self._placements, dlg.results())]
+        self._refresh_markers(save=True)
+        self.statusBar().showMessage("Stretch updated.", 2000)
+
     def _place_tag_at_fraction(self, fraction: float) -> None:
         if not (self._active_tag and self._beat_duration_sec > 0):
             self.statusBar().showMessage("Select a tag in the tag library first.", 3000)
             return
         pos = round(fraction * self._beat_duration_sec, 3)
-        self._placements.append(Placement(pos, self._active_tag))
+        ratio, pp = self._compute_stretch()
+        self._placements.append(Placement(pos, self._active_tag, ratio, pp))
         self._placements.sort(key=lambda p: p.position_sec)
         self._refresh_markers(save=True)
         if self._layer_active(self._active_tag):  # instant audition on placement
@@ -989,7 +1163,9 @@ class MainWindow(QMainWindow):
     def _move_marker(self, index: int, fraction: float) -> None:
         if 0 <= index < len(self._placements) and self._beat_duration_sec > 0:
             pos = round(fraction * self._beat_duration_sec, 3)
-            self._placements[index] = Placement(pos, self._placements[index].tag_path)
+            old = self._placements[index]
+            self._placements[index] = Placement(
+                pos, old.tag_path, old.stretch_ratio, old.preserve_pitch)
             self._placements.sort(key=lambda p: p.position_sec)
             self._refresh_markers(save=True)
 
@@ -1003,7 +1179,9 @@ class MainWindow(QMainWindow):
             data = json.loads(raw)
         except (json.JSONDecodeError, TypeError):
             return []
-        return [Placement(float(d["pos"]), d["tag"]) for d in data if "pos" in d and "tag" in d]
+        return [Placement(float(d["pos"]), d["tag"],
+                          float(d.get("ratio", 1.0)), bool(d.get("pp", True)))
+                for d in data if "pos" in d and "tag" in d]
 
     @staticmethod
     def _load_json_list(raw) -> list:
@@ -1025,13 +1203,46 @@ class MainWindow(QMainWindow):
         except (json.JSONDecodeError, TypeError):
             return {}
 
+    @staticmethod
+    def _dump_placements(placements) -> list:
+        """Serialize placements to JSON-ready dicts (stretch only when non-trivial)."""
+        out = []
+        for p in placements:
+            d = {"pos": p.position_sec, "tag": p.tag_path}
+            if abs(p.stretch_ratio - 1.0) > 1e-3:
+                d["ratio"] = round(p.stretch_ratio, 4)
+                d["pp"] = p.preserve_pitch
+            out.append(d)
+        return out
+
+    def _stretch_map(self) -> dict:
+        """tag path -> stored native BPM, for tempo-matching rotated tags."""
+        return {r["path"]: r["native_bpm"] for r in self.db.list_tag_files()}
+
+    def _apply_stretch(self, placements, beat_bpm, nbpm_map=None) -> list:
+        """Stamp the current tempo-match settings onto a list of placements."""
+        s = self.tag_panel.stretch_settings()
+        if not s["match"]:
+            return list(placements)
+        nbpm_map = self._stretch_map() if nbpm_map is None else nbpm_map
+        pp = s["preserve_pitch"]
+        out = []
+        for p in placements:
+            if s["mode"] == "manual":
+                ratio = s["manual_ratio"]
+            else:
+                ratio = core_stretch.compute(
+                    beat_bpm, nbpm_map.get(p.tag_path), s["mode"])["ratio"]
+            out.append(Placement(p.position_sec, p.tag_path, ratio, pp))
+        return out
+
     def _save_placements(self) -> None:
         if self._current_beat_id is None:
             return
-        data = json.dumps([{"pos": p.position_sec, "tag": p.tag_path}
-                           for p in self._placements])
-        self.db.update_beat(self._current_beat_id, placements=data,
-                            layers=json.dumps(self._layers))
+        self.db.update_beat(
+            self._current_beat_id,
+            placements=json.dumps(self._dump_placements(self._placements)),
+            layers=json.dumps(self._layers))
 
     def _on_crop_changed(self, start: float, end: float) -> None:
         if self._beat_duration_sec > 0:
@@ -1099,12 +1310,14 @@ class MainWindow(QMainWindow):
         if len(selected) > 1:
             self._batch_autoplace(dlg, selected)
         else:
-            self._placements = dlg.compute_for(
-                self._beat_duration_sec, structure, drop, hook)
+            self._placements = self._apply_stretch(
+                dlg.compute_for(self._beat_duration_sec, structure, drop, hook),
+                self._beat_bpm)
             self._refresh_markers(save=True)
 
     def _batch_autoplace(self, dlg, beat_ids: list) -> None:
         self.progress.begin("Auto-placing", len(beat_ids))
+        nbpm_map = self._stretch_map()
         done = applied = 0
         for bid in beat_ids:
             row = self.db.get_beat(bid)
@@ -1114,14 +1327,59 @@ class MainWindow(QMainWindow):
                     f"✗ {row['filename'] if row else bid}: not analyzed")
             else:
                 structure, drop, hook = self._beat_context(row)
-                placements = dlg.compute_for(row["duration_sec"], structure, drop, hook)
+                placements = self._apply_stretch(
+                    dlg.compute_for(row["duration_sec"], structure, drop, hook),
+                    row["bpm"], nbpm_map)
                 self.db.update_beat(bid, placements=json.dumps(
-                    [{"pos": p.position_sec, "tag": p.tag_path} for p in placements]))
+                    self._dump_placements(placements)))
                 applied += 1
                 self.progress.log_line(f"✓ {row['filename']}: {len(placements)} tags")
             self.progress.update(done, len(beat_ids),
                                  f"Auto-placing {done} of {len(beat_ids)}")
         self.progress.end(f"Auto-placed {applied} beat(s)")
+        self._on_selection()   # reload the current beat's (possibly updated) markers
+
+    def _batch_tag(self) -> None:
+        """Place tags at up to 4 manual times across the checked/selected beats."""
+        tags = self.tag_panel.all_tag_paths()
+        if not tags:
+            self.statusBar().showMessage("No enabled tags in the library.", 3000)
+            return
+        ids = self._selected_beat_ids()
+        if not ids:  # nothing selected -> offer the whole filtered view
+            ids = [b["id"] for b in self.db.list_beats(search=self.search.text() or None)]
+        if not ids:
+            self.statusBar().showMessage("No beats to tag.", 3000)
+            return
+
+        dlg = BatchTagDialog(len(ids), self)
+        if not dlg.exec():
+            return
+        times = dlg.times()
+
+        self.progress.begin("Batch tagging", len(ids))
+        nbpm_map = self._stretch_map()
+        done = applied = 0
+        for bid in ids:
+            row = self.db.get_beat(bid)
+            done += 1
+            if row is None or not row["duration_sec"]:
+                self.progress.log_line(
+                    f"✗ {row['filename'] if row else bid}: not analyzed")
+            else:
+                # min_spacing=0: honor the exact times the user typed.
+                placements = self._apply_stretch(
+                    core_autoplace.suggest_placements(
+                        "fixed_times", row["duration_sec"], tags, times=times,
+                        min_spacing=0),
+                    row["bpm"], nbpm_map)
+                self.db.update_beat(bid, placements=json.dumps(
+                    self._dump_placements(placements)))
+                applied += 1
+                self.progress.log_line(f"✓ {row['filename']}: {len(placements)} tags")
+            self.progress.update(done, len(ids),
+                                 f"Batch tagging {done} of {len(ids)}")
+        self.progress.end(f"Tagged {applied} beat(s)")
         self._on_selection()   # reload the current beat's (possibly updated) markers
 
     def _tag_at_drop(self) -> None:
@@ -1331,6 +1589,9 @@ class MainWindow(QMainWindow):
     def _on_save(self, beat_id: int, fields: dict, tag_names: list) -> None:
         self.db.update_beat(beat_id, **fields)
         self.db.set_tags(beat_id, tag_names)
+        row = self.db.get_beat(beat_id)
+        if row:
+            core_manifest.refresh_for_beat(self.db, row["file_path"])
         self.refresh_library(self.search.text())
         self.statusBar().showMessage("Saved", 2000)
 
@@ -1432,15 +1693,25 @@ class MainWindow(QMainWindow):
         self.analyze_pending()
 
     def _scan_folder(self) -> None:
-        folder = QFileDialog.getExistingDirectory(self, "Scan a folder for beats")
-        if not folder:
+        # ponytail: native dir picker can't host a checkbox, so use the non-native
+        # QFileDialog and drop a checkbox into its grid layout.
+        dlg = QFileDialog(self, "Scan a folder for beats")
+        dlg.setFileMode(QFileDialog.Directory)
+        dlg.setOption(QFileDialog.ShowDirsOnly, True)
+        dlg.setOption(QFileDialog.DontUseNativeDialog, True)
+        subdirs = QCheckBox("Include subfolders")
+        subdirs.setChecked(True)
+        dlg.layout().addWidget(subdirs, dlg.layout().rowCount(), 0, 1, -1)
+        if dlg.exec() != QFileDialog.Accepted or not dlg.selectedFiles():
             return
+        folder = dlg.selectedFiles()[0]
         self.progress.begin("Scanning", 1)
-        added = importer.scan_folder(self.db, folder)
+        added = importer.scan_folder(self.db, folder, recursive=subdirs.isChecked())
         self.progress.log_line(f"Scanned {folder}: {added} new beat(s)")
         self.progress.end(f"Scanned {added} beat(s)")
         self.refresh_library(self.search.text())
         self.statusBar().showMessage(f"Scanned: {added} new beat(s)", 3000)
+        core_manifest.refresh_under(self.db, folder)   # write/refresh beats.json
         self.analyze_pending()
 
     def _open_settings(self) -> None:

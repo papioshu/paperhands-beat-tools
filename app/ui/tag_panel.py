@@ -11,6 +11,9 @@ from typing import Optional
 
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
+    QCheckBox,
+    QComboBox,
+    QDoubleSpinBox,
     QFileDialog,
     QFrame,
     QHBoxLayout,
@@ -21,6 +24,9 @@ from PySide6.QtWidgets import (
     QTreeWidgetItem,
     QVBoxLayout,
 )
+
+_MODE_LABELS = {"Normal": "normal", "Half-Time": "half",
+                "Double-Time": "double", "Manual": "manual"}
 
 from app import config
 from app.services import tag_library
@@ -38,6 +44,9 @@ class TagLibraryPanel(QFrame):
     tag_at_drop_requested = Signal()
     tag_at_hook_requested = Signal()
     clear_requested = Signal()
+    stretch_changed = Signal()              # tempo-match settings changed
+    preview_stretch_requested = Signal()    # audition the active tag stretched
+    stretch_editor_requested = Signal()     # open the per-placement stretch editor
     export_tagged_preview_requested = Signal()
     export_clean_master_requested = Signal()
     export_tag_stem_requested = Signal()
@@ -99,6 +108,51 @@ class TagLibraryPanel(QFrame):
         smart_row.addWidget(self.btn_tag_hook)
         layout.addLayout(smart_row)
 
+        # -- Tempo match (per-placement tag stretching) --
+        tempo_hdr = QLabel("Tempo match")
+        tempo_hdr.setObjectName("SubHeading")
+        layout.addWidget(tempo_hdr)
+
+        t1 = QHBoxLayout()
+        t1.addWidget(QLabel("Tag BPM"))
+        self.native_bpm = QDoubleSpinBox()
+        self.native_bpm.setRange(0, 300)
+        self.native_bpm.setDecimals(1)
+        self.native_bpm.setSpecialValueText("—")     # 0 shows as "not set"
+        t1.addWidget(self.native_bpm)
+        self.match_toggle = QCheckBox("Match beat")
+        t1.addWidget(self.match_toggle)
+        layout.addLayout(t1)
+
+        t2 = QHBoxLayout()
+        self.match_mode = QComboBox()
+        self.match_mode.addItems(list(_MODE_LABELS.keys()))
+        t2.addWidget(self.match_mode, 1)
+        self.preserve_pitch = QCheckBox("Preserve pitch")
+        self.preserve_pitch.setChecked(True)
+        t2.addWidget(self.preserve_pitch)
+        layout.addLayout(t2)
+
+        t3 = QHBoxLayout()
+        self.manual_ratio = QDoubleSpinBox()
+        self.manual_ratio.setRange(0.5, 2.0)
+        self.manual_ratio.setSingleStep(0.05)
+        self.manual_ratio.setValue(1.0)
+        self.manual_ratio.setPrefix("×")
+        self.manual_ratio.setEnabled(False)          # only in Manual mode
+        t3.addWidget(self.manual_ratio)
+        self.stretch_label = QLabel("Stretch: 1.00×")
+        self.stretch_label.setObjectName("AccentLime")
+        t3.addWidget(self.stretch_label, 1)
+        self.btn_preview_stretch = QPushButton("▶ Preview")
+        t3.addWidget(self.btn_preview_stretch)
+        layout.addLayout(t3)
+
+        self.btn_stretch_editor = QPushButton("Stretch editor…")
+        self.btn_stretch_editor.setToolTip(
+            "Fine-tune the time-stretch of each placed tag on this beat")
+        layout.addWidget(self.btn_stretch_editor)
+
         self.count_label = QLabel("0 tags placed")
         self.count_label.setObjectName("AccentLime")
         layout.addWidget(self.count_label)
@@ -134,6 +188,13 @@ class TagLibraryPanel(QFrame):
         self.btn_tag_drop.clicked.connect(self.tag_at_drop_requested)
         self.btn_tag_hook.clicked.connect(self.tag_at_hook_requested)
         self.btn_clear.clicked.connect(self.clear_requested)
+        self.native_bpm.valueChanged.connect(self._on_native_bpm_changed)
+        self.match_toggle.toggled.connect(lambda *_: self.stretch_changed.emit())
+        self.preserve_pitch.toggled.connect(lambda *_: self.stretch_changed.emit())
+        self.match_mode.currentTextChanged.connect(self._on_mode_changed)
+        self.manual_ratio.valueChanged.connect(lambda *_: self.stretch_changed.emit())
+        self.btn_preview_stretch.clicked.connect(self.preview_stretch_requested)
+        self.btn_stretch_editor.clicked.connect(self.stretch_editor_requested)
         self.btn_export_preview.clicked.connect(self.export_tagged_preview_requested)
         self.btn_export_master.clicked.connect(self.export_clean_master_requested)
         self.btn_export_stem.clicked.connect(self.export_tag_stem_requested)
@@ -220,7 +281,42 @@ class TagLibraryPanel(QFrame):
 
     def _on_tag_changed(self, current, _previous) -> None:
         path = current.data(0, _PATH_ROLE) if current else None
+        self._load_native_bpm()
         self.active_tag_changed.emit(path or "")
+
+    # -- tempo match -------------------------------------------------------
+
+    def _load_native_bpm(self) -> None:
+        """Show the selected tag's stored native BPM (0 = not set)."""
+        tid = self._current_tag_id()
+        row = self.db.get_tag_file(tid) if tid is not None else None
+        self.native_bpm.blockSignals(True)
+        self.native_bpm.setValue((row["native_bpm"] or 0.0) if row else 0.0)
+        self.native_bpm.blockSignals(False)
+        self.stretch_changed.emit()
+
+    def _on_native_bpm_changed(self, value: float) -> None:
+        tid = self._current_tag_id()
+        if tid is not None:
+            self.db.update_tag_file(tid, native_bpm=value or None)
+        self.stretch_changed.emit()
+
+    def _on_mode_changed(self, label: str) -> None:
+        self.manual_ratio.setEnabled(_MODE_LABELS.get(label) == "manual")
+        self.stretch_changed.emit()
+
+    def stretch_settings(self) -> dict:
+        """Current tempo-match settings (consumed when a tag is placed)."""
+        return {
+            "match": self.match_toggle.isChecked(),
+            "mode": _MODE_LABELS.get(self.match_mode.currentText(), "normal"),
+            "native_bpm": self.native_bpm.value() or None,
+            "preserve_pitch": self.preserve_pitch.isChecked(),
+            "manual_ratio": self.manual_ratio.value(),
+        }
+
+    def set_stretch_display(self, text: str) -> None:
+        self.stretch_label.setText(text)
 
     def _on_item_changed(self, item, _column) -> None:
         if self._building:

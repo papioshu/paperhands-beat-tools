@@ -73,10 +73,19 @@ def apply_placements(
     gain + pan before overlay. With no layers it behaves exactly as before.
     """
     from .layers import filter_placements
+    from . import stretch as _stretch
 
     result = beat
+    stretched_cache: Dict[tuple, object] = {}
     for p in filter_placements(placements, layers or {}):
         tag = tag_cache[p.tag_path]
+        ratio = getattr(p, "stretch_ratio", 1.0)
+        if ratio and abs(ratio - 1.0) > 1e-3:
+            pp = getattr(p, "preserve_pitch", True)
+            key = (p.tag_path, round(ratio, 4), pp)
+            if key not in stretched_cache:
+                stretched_cache[key] = _stretch.stretch_segment(tag, ratio, pp)
+            tag = stretched_cache[key]
         layer = (layers or {}).get(p.tag_path)
         if layer:
             if layer.get("volume_db"):
