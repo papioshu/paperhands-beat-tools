@@ -23,7 +23,7 @@ _EDITABLE = {
     "file_path", "filename", "placements",
     "bpm_confidence", "key_confidence", "bpm_candidates", "key_candidates",
     "fingerprint", "structure", "drop_sec", "hook_start", "hook_end",
-    "mood_suggested", "artwork_path", "layers", "stems", "ignored",
+    "mood_suggested", "artwork_path", "layers", "stems", "ignored", "auto_tag",
 }
 
 # Columns added after the original schema shipped; applied as additive migrations
@@ -44,6 +44,7 @@ _MIGRATIONS = {
     "layers": "ALTER TABLE beats ADD COLUMN layers TEXT",
     "stems": "ALTER TABLE beats ADD COLUMN stems TEXT",
     "ignored": "ALTER TABLE beats ADD COLUMN ignored INTEGER DEFAULT 0",
+    "auto_tag": "ALTER TABLE beats ADD COLUMN auto_tag INTEGER DEFAULT 0",
 }
 
 _SCHEMA = """

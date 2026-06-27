@@ -1,5 +1,17 @@
 # Changelog
 
+## 1.2.2
+- Right-click menu on the library list: Remove from library, Mark / Unmark for
+  Auto Tags.
+- Row highlighting: selected rows are purple; rows with unsaved edits are green
+  (purple overrides green while selected, green returns on deselect).
+- Edits (metadata, tag placement/stretch, gain/layers, auto-tag marks) flag a
+  beat as unsaved until written.
+- New **Save Changes to JSON** toolbar button (💾): flushes pending edits to the
+  per-folder `beats.json`; disabled when there are no unsaved changes.
+- Single and batch tagged-preview exports both refresh `previews.json`.
+- Non-destructive: Remove drops only the catalog entry; audio files stay on disk.
+
 ## 1.2.1
 - Keep all AI assistant tooling/config/output out of the repo: ignore `.claude/`,
   `brag-output/`, and common assistant files; untrack the previously committed

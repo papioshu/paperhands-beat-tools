@@ -32,6 +32,9 @@ COLORS = {
     # Status
     "error":       "#FF6B6B",
     "warn":        "#FFB454",
+
+    # Row states (library list)
+    "edited":      "#2E7D46",  # green wash: item has unsaved edits
 }
 
 
@@ -107,8 +110,8 @@ def build_stylesheet() -> str:
         border: 1px solid {c['border']};
         border-radius: 8px;
         gridline-color: {c['border']};
-        selection-background-color: {c['violet_deep']};
-        selection-color: {c['text']};
+        selection-background-color: {c['violet']};
+        selection-color: white;
     }}
     QHeaderView::section {{
         background-color: {c['surface']};
@@ -118,7 +121,10 @@ def build_stylesheet() -> str:
         padding: 6px 8px;
         font-weight: 600;
     }}
-    QTableView::item:selected {{ background-color: {c['violet_deep']}; }}
+    /* Selected rows read clearly purple, overriding any row background (e.g. edited-green). */
+    QTableView::item:selected, QTableWidget::item:selected {{
+        background-color: {c['violet']}; color: white;
+    }}
 
     /* Splitter */
     QSplitter::handle {{ background-color: {c['border']}; }}

@@ -17,7 +17,7 @@ from pathlib import Path
 from typing import Optional
 
 from PySide6.QtCore import Qt, QThreadPool
-from PySide6.QtGui import QIcon, QPixmap
+from PySide6.QtGui import QColor, QIcon, QPixmap
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QCheckBox,
@@ -43,6 +43,7 @@ from PySide6.QtWidgets import (
 )
 
 from app.db import Database
+from app.theme import COLORS
 from app.services import importer, renamer
 from app.ui.autoplace_dialog import AutoPlaceDialog
 from app.ui.batch_rename_dialog import BatchRenameDialog
@@ -121,6 +122,7 @@ class MainWindow(QMainWindow):
         self._active_tag = None
         self._placements: list = []          # list[core.models.Placement]
         self._beat_bpm = None                # current beat's BPM (for tempo match)
+        self._edited_ids: set = set()        # beats with unsaved edits (green rows)
         self._layers: dict = {}              # tag_path -> layer props
         self._beat_duration_sec = 0.0
         self._current_path = None
@@ -224,6 +226,11 @@ class MainWindow(QMainWindow):
                              spacer.sizePolicy().verticalPolicy().Preferred)
         tb.addWidget(spacer)
 
+        self.btn_save_json = QPushButton("💾 Save Changes to JSON")
+        self.btn_save_json.setEnabled(False)
+        self.btn_save_json.clicked.connect(self._save_changes_to_json)
+        tb.addWidget(self.btn_save_json)
+
         self.btn_settings = QPushButton("Settings")
         tb.addWidget(self.btn_settings)
         self.btn_about = QPushButton("About")
@@ -238,6 +245,9 @@ class MainWindow(QMainWindow):
         self.btn_daw.setToolTip("Open DAW Mode: mix the beat's stems and place tags")
         self.btn_settings.setToolTip("Producer name, folders, stem model, backups, updates")
         self.btn_about.setToolTip("Version and links")
+        self.btn_save_json.setToolTip(
+            "Write pending edits (metadata, tags, gain, marks) to the per-folder "
+            "beats.json files. Enabled only when there are unsaved changes.")
         self.search.setToolTip("Filter the library by title, genre, mood, key, or tag")
 
         self.btn_import.clicked.connect(self._import_files)
@@ -270,6 +280,8 @@ class MainWindow(QMainWindow):
         self.table.itemSelectionChanged.connect(self._on_selection)
         self.table.itemDoubleClicked.connect(self._on_row_double_clicked)
         self.table.itemChanged.connect(self._sync_select_all)
+        self.table.setContextMenuPolicy(Qt.CustomContextMenu)
+        self.table.customContextMenuRequested.connect(self._table_context_menu)
         self.split.addWidget(self.table)
 
         self.detail = DetailPanel()
@@ -398,8 +410,10 @@ class MainWindow(QMainWindow):
         for r, b in enumerate(beats):
             missing = importer.is_missing(b)
             status = "missing" if missing else (b["analysis_status"] or "")
+            edited = b["id"] in self._edited_ids
+            green = QColor(COLORS["edited"]) if edited else None
             values = [
-                b["title"] or b["filename"],
+                self._title_text(b),
                 "" if b["bpm"] is None else f"{b['bpm']:g}",
                 b["key"] or "",
                 b["genre"] or "",
@@ -414,6 +428,8 @@ class MainWindow(QMainWindow):
                     item.setCheckState(Qt.Unchecked)
                 if missing and col == 5:
                     item.setForeground(Qt.yellow)
+                if green is not None:           # unsaved-edit row → green
+                    item.setBackground(green)
                 self.table.setItem(r, col, item)
             row_for_id[b["id"]] = r
         self.table.blockSignals(False)
@@ -555,7 +571,7 @@ class MainWindow(QMainWindow):
             missing = importer.is_missing(row)
             status = "missing" if missing else (row["analysis_status"] or "")
             values = [
-                row["title"] or row["filename"],
+                self._title_text(row),
                 "" if row["bpm"] is None else f"{row['bpm']:g}",
                 row["key"] or "", row["genre"] or "", row["mood"] or "", status,
             ]
@@ -625,6 +641,97 @@ class MainWindow(QMainWindow):
         else:
             self.select_all.setCheckState(Qt.PartiallyChecked)
         self.select_all.blockSignals(False)
+
+    # -- edit state (green rows) + Save-to-JSON ----------------------------
+
+    @staticmethod
+    def _title_text(b) -> str:
+        title = b["title"] or b["filename"]
+        return f"🏷 {title}" if b["auto_tag"] else title
+
+    def _row_for_beat(self, beat_id: int) -> int:
+        for r in range(self.table.rowCount()):
+            it = self.table.item(r, 0)
+            if it is not None and it.data(Qt.UserRole) == beat_id:
+                return r
+        return -1
+
+    def _mark_edited(self, beat_id) -> None:
+        """Flag a beat as having unsaved edits → green row + enable Save."""
+        if beat_id is None:
+            return
+        self._edited_ids.add(beat_id)
+        r = self._row_for_beat(beat_id)
+        if r >= 0:
+            green = QColor(COLORS["edited"])
+            for col in range(self.table.columnCount()):
+                cell = self.table.item(r, col)
+                if cell is not None:
+                    cell.setBackground(green)
+        self._update_save_button()
+
+    def _update_save_button(self) -> None:
+        self.btn_save_json.setEnabled(bool(self._edited_ids))
+
+    def _save_changes_to_json(self) -> None:
+        """Flush all pending edits to the per-folder beats.json files; clear green."""
+        if not self._edited_ids:
+            return
+        written = 0
+        for bid in list(self._edited_ids):
+            row = self.db.get_beat(bid)
+            if row and core_manifest.refresh_for_beat(self.db, row["file_path"]):
+                written += 1
+        self._edited_ids.clear()
+        self._update_save_button()
+        self.refresh_library(self.search.text())   # repaint without green
+        self.statusBar().showMessage(f"Saved changes to {written} folder JSON file(s)", 3000)
+
+    # -- right-click context menu ------------------------------------------
+
+    def _table_context_menu(self, pos) -> None:
+        item = self.table.itemAt(pos)
+        if item is None:
+            return
+        clicked_id = item.data(Qt.UserRole)
+        ids = self._selected_beat_ids()
+        if clicked_id not in ids:        # right-click outside selection → that row
+            ids = [clicked_id]
+        rows = [self.db.get_beat(i) for i in ids]
+        rows = [r for r in rows if r is not None]
+        if not rows:
+            return
+
+        menu = QMenu(self)
+        menu.addAction(f"Remove from library ({len(rows)})",
+                       lambda: self._remove_beats(ids))
+        all_marked = all(r["auto_tag"] for r in rows)
+        if all_marked:
+            menu.addAction("Unmark for Auto Tags",
+                           lambda: self._set_auto_tag(ids, False))
+        else:
+            menu.addAction("Mark for Auto Tags",
+                           lambda: self._set_auto_tag(ids, True))
+        menu.exec(self.table.viewport().mapToGlobal(pos))
+
+    def _set_auto_tag(self, ids: list, mark: bool) -> None:
+        for bid in ids:
+            self.db.update_beat(bid, auto_tag=1 if mark else 0)
+            self._edited_ids.add(bid)
+        self._update_save_button()
+        self.refresh_library(self.search.text())
+        verb = "Marked" if mark else "Unmarked"
+        self.statusBar().showMessage(f"{verb} {len(ids)} beat(s) for auto tags", 2500)
+
+    def _remove_beats(self, ids: list) -> None:
+        """Remove beats from the library view (catalog only — files stay on disk)."""
+        for bid in ids:
+            self.db.delete_beat(bid)     # non-destructive: audio file untouched
+            self._edited_ids.discard(bid)
+        self._update_save_button()
+        self.refresh_library(self.search.text())
+        self.statusBar().showMessage(
+            f"Removed {len(ids)} from library (files left on disk)", 3000)
 
     def _batch_rename(self) -> None:
         ids = self._selected_beat_ids()
@@ -1243,6 +1350,7 @@ class MainWindow(QMainWindow):
             self._current_beat_id,
             placements=json.dumps(self._dump_placements(self._placements)),
             layers=json.dumps(self._layers))
+        self._mark_edited(self._current_beat_id)
 
     def _on_crop_changed(self, start: float, end: float) -> None:
         if self._beat_duration_sec > 0:
@@ -1578,6 +1686,8 @@ class MainWindow(QMainWindow):
         self.progress.log_line(f"✓ Exported → {Path(out_path).name}")
         self.progress.end("Export complete", folder=str(Path(out_path).parent))
         self.statusBar().showMessage(f"Exported → {Path(out_path).name}", 5000)
+        if Path(out_path).parent.name == "previews":
+            self._write_previews_manifest()
 
     def _on_export_error(self, message: str) -> None:
         self._set_exporting(False)
@@ -1589,11 +1699,9 @@ class MainWindow(QMainWindow):
     def _on_save(self, beat_id: int, fields: dict, tag_names: list) -> None:
         self.db.update_beat(beat_id, **fields)
         self.db.set_tags(beat_id, tag_names)
-        row = self.db.get_beat(beat_id)
-        if row:
-            core_manifest.refresh_for_beat(self.db, row["file_path"])
+        self._mark_edited(beat_id)   # JSON mirror flushed via the Save button
         self.refresh_library(self.search.text())
-        self.statusBar().showMessage("Saved", 2000)
+        self.statusBar().showMessage("Saved to library — use 💾 to write JSON", 2500)
 
     def _on_rename(self, beat_id: int) -> None:
         row = self.db.get_beat(beat_id)
