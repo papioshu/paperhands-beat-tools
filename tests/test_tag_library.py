@@ -61,6 +61,34 @@ def test_list_filters(db, tmp_path):
     assert len(db.list_tag_files(category="Hard")) == 1
 
 
+def test_no_duplicate_tags_case_insensitive(db):
+    # Same file, different case path -> one row, same id.
+    id1 = db.add_tag_file(r"C:/Tags/Drop.wav", "Drop")
+    id2 = db.add_tag_file(r"c:/tags/drop.wav", "Drop")
+    assert id1 == id2
+    assert len(db.list_tag_files()) == 1
+
+
+def test_migration_dedupes_legacy_rows(tmp_path):
+    # Seed dupes directly (pre-index), then a re-open must collapse them.
+    import sqlite3
+    path = str(tmp_path / "legacy.db")
+    d = Database(path)
+    d.add_tag_file(r"C:/Tags/Oni.wav", "Oni")
+    d.close()
+    raw = sqlite3.connect(path)                       # sneak a dup past the index
+    raw.execute("DROP INDEX IF EXISTS idx_producer_tags_path")
+    raw.execute("INSERT INTO producer_tags (path, name, category, hidden) "
+                "VALUES (?, ?, 'Uncategorized', 1)", (r"c:/tags/oni.wav", "Oni"))
+    raw.commit()
+    raw.close()
+    d2 = Database(path)                               # _migrate dedupes on open
+    rows = d2.list_tag_files(include_hidden=True)
+    assert len(rows) == 1
+    assert rows[0]["hidden"] == 1                     # removed state preserved
+    d2.close()
+
+
 def test_prune_missing(db, tmp_path):
     f = _tag(tmp_path, "Gone.wav")
     tag_library.sync_folder(db, str(tmp_path))

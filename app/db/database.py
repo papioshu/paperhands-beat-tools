@@ -120,6 +120,29 @@ class Database:
         if "hidden" not in pt:
             self.conn.execute(
                 "ALTER TABLE producer_tags ADD COLUMN hidden INTEGER DEFAULT 0")
+        # No two library entries may point at the same file. Collapse any legacy
+        # dupes, then let a unique index enforce it from here on.
+        self._dedupe_tag_files()
+        self.conn.execute(
+            "CREATE UNIQUE INDEX IF NOT EXISTS idx_producer_tags_path "
+            "ON producer_tags(path COLLATE NOCASE)")
+        self.conn.commit()
+
+    def _dedupe_tag_files(self) -> None:
+        """Remove rows sharing a file (case-insensitive path); keep the earliest
+        and OR in the hidden flag so a removed tag stays removed."""
+        seen: dict = {}
+        for r in self.conn.execute(
+                "SELECT id, path, hidden FROM producer_tags ORDER BY id").fetchall():
+            key = r["path"].casefold()
+            if key in seen:
+                if r["hidden"]:
+                    self.conn.execute(
+                        "UPDATE producer_tags SET hidden = 1 WHERE id = ?", (seen[key],))
+                self.conn.execute("DELETE FROM producer_tags WHERE id = ?", (r["id"],))
+            else:
+                seen[key] = r["id"]
+        self.conn.commit()
 
     def close(self) -> None:
         self.conn.close()
@@ -282,7 +305,7 @@ class Database:
 
     def add_tag_file(self, path: str, name: str, category: str = "Uncategorized") -> int:
         existing = self.conn.execute(
-            "SELECT id FROM producer_tags WHERE path = ?", (path,)).fetchone()
+            "SELECT id FROM producer_tags WHERE path = ? COLLATE NOCASE", (path,)).fetchone()
         if existing:
             return existing["id"]
         cur = self.conn.execute(
