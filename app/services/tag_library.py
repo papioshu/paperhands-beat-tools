@@ -18,7 +18,8 @@ def sync_folder(db, folder: str) -> int:
     root = Path(folder)
     if not root.is_dir():
         return 0
-    existing = {r["path"] for r in db.list_tag_files()}
+    # Include hidden rows so a tag "removed" from the library isn't re-added.
+    existing = {r["path"] for r in db.list_tag_files(include_hidden=True)}
     added = 0
     for f in sorted(root.iterdir()):
         if f.is_file() and f.suffix.lower() in AUDIO_EXTS:

@@ -7,7 +7,6 @@ tag to place. Folder changes re-sync new files into the library.
 
 from __future__ import annotations
 
-import os
 from typing import Optional
 
 from PySide6.QtCore import Qt, Signal
@@ -368,18 +367,14 @@ class TagLibraryPanel(QFrame):
         if tid is None:
             return
         row = self.db.get_tag_file(tid)
-        # The library re-syncs from the folder, so removal must delete the file
-        # too or it reappears on the next refresh. Destructive -> confirm first.
+        # Non-destructive: hide the entry (the file stays on disk). A hidden flag
+        # is needed because the folder re-syncs and would otherwise re-add it.
         resp = QMessageBox.question(
             self, "Remove tag",
             f"Remove “{row['name']}” from the library?\n\n"
-            f"This permanently deletes the file from disk:\n{row['path']}",
+            f"The file stays on disk — it just won't show here.",
             QMessageBox.Yes | QMessageBox.Cancel, QMessageBox.Cancel)
         if resp != QMessageBox.Yes:
             return
-        try:
-            os.remove(row["path"])
-        except OSError:
-            pass                                    # already gone; still drop the row
-        self.db.remove_tag_file(tid)
+        self.db.update_tag_file(tid, hidden=1)
         self.refresh_tags()

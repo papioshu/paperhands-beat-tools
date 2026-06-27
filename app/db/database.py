@@ -117,6 +117,9 @@ class Database:
         pt = {row["name"] for row in self.conn.execute("PRAGMA table_info(producer_tags)")}
         if "native_bpm" not in pt:
             self.conn.execute("ALTER TABLE producer_tags ADD COLUMN native_bpm REAL")
+        if "hidden" not in pt:
+            self.conn.execute(
+                "ALTER TABLE producer_tags ADD COLUMN hidden INTEGER DEFAULT 0")
 
     def close(self) -> None:
         self.conn.close()
@@ -289,9 +292,12 @@ class Database:
         return cur.lastrowid
 
     def list_tag_files(self, enabled_only: bool = False, category: str = None,
-                       favorites_only: bool = False) -> List[sqlite3.Row]:
+                       favorites_only: bool = False,
+                       include_hidden: bool = False) -> List[sqlite3.Row]:
         sql = "SELECT * FROM producer_tags"
         where, params = [], []
+        if not include_hidden:
+            where.append("hidden = 0")
         if enabled_only:
             where.append("enabled = 1")
         if favorites_only:
@@ -309,7 +315,7 @@ class Database:
             "SELECT * FROM producer_tags WHERE id = ?", (tag_id,)).fetchone()
 
     def update_tag_file(self, tag_id: int, **fields) -> None:
-        allowed = {"name", "category", "enabled", "favorite", "native_bpm"}
+        allowed = {"name", "category", "enabled", "favorite", "native_bpm", "hidden"}
         cols = {k: v for k, v in fields.items() if k in allowed}
         if not cols:
             return

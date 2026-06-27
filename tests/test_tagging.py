@@ -65,7 +65,7 @@ def test_initial_tag_selection_is_captured(tmp_path):
         config.set_tags_folder(old)
 
 
-def test_remove_tag_file_deletes_disk_and_catalog(tmp_path, monkeypatch):
+def test_remove_tag_file_hides_nondestructively(tmp_path, monkeypatch):
     from app import config
     from app.ui.tag_panel import TagLibraryPanel
     from PySide6.QtWidgets import QMessageBox
@@ -85,10 +85,10 @@ def test_remove_tag_file_deletes_disk_and_catalog(tmp_path, monkeypatch):
         monkeypatch.setattr(QMessageBox, "question",
                             lambda *a, **k: QMessageBox.Yes)
         panel._remove_tag_file()
-        assert not tagfile.exists()                      # file gone from disk
-        assert db.list_tag_files() == []                 # catalog row gone
-        panel.refresh_tags()
-        assert db.list_tag_files() == []                 # and stays gone (no resync)
+        assert tagfile.exists()                          # file untouched on disk
+        assert db.list_tag_files() == []                 # hidden from the library
+        panel.refresh_tags()                             # re-sync must not bring it back
+        assert db.list_tag_files() == []
     finally:
         config.set_tags_folder(old)
 
