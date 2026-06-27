@@ -135,7 +135,7 @@ class TagLibraryPanel(QFrame):
 
         t3 = QHBoxLayout()
         self.manual_ratio = QDoubleSpinBox()
-        self.manual_ratio.setRange(0.5, 2.0)
+        self.manual_ratio.setRange(0.25, 4.0)   # allow true half/double and beyond
         self.manual_ratio.setSingleStep(0.05)
         self.manual_ratio.setValue(1.0)
         self.manual_ratio.setPrefix("×")

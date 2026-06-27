@@ -59,7 +59,7 @@ class StretchEditorDialog(QDialog):
             self.table.setItem(r, 1, QTableWidgetItem(Path(p.tag_path).stem))
 
             spin = QDoubleSpinBox()
-            spin.setRange(0.5, 2.0)
+            spin.setRange(0.25, 4.0)     # allow true half/double and beyond
             spin.setSingleStep(0.05)
             spin.setPrefix("×")
             spin.setValue(round(p.stretch_ratio, 4))

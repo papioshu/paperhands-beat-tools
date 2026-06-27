@@ -1,6 +1,6 @@
 """Single source of truth for the app version (compared against GitHub releases)."""
 
-__version__ = "1.2.2"
+__version__ = "1.2.3"
 
 # Default GitHub repo the app checks for updates ("owner/name"). Overridable in
 # Settings -> Updates. Public, so release checks work anonymously.
