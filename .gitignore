@@ -27,8 +27,16 @@ reports/*
 Thumbs.db
 .DS_Store
 
-# Claude Code — keep shared settings.json, ignore local overrides
-.claude/settings.local.json
+# AI assistants — never publish AI tooling, config, or output
+.claude/
+CLAUDE.md
+AGENTS.md
+GEMINI.md
+.cursor/
+.cursorrules
+.aider*
+.github/copilot-instructions.md
+brag-output/
 
 # Built library database
 library.db

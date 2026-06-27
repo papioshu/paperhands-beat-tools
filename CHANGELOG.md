@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.2.1
+- Keep all AI assistant tooling/config/output out of the repo: ignore `.claude/`,
+  `brag-output/`, and common assistant files; untrack the previously committed
+  `.claude/settings.json` (stays local).
+
 ## 1.2.0
 
 ### Tempo-aware tag placement & stretching
