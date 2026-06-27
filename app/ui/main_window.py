@@ -122,6 +122,7 @@ class MainWindow(QMainWindow):
         self._active_tag = None
         self._placements: list = []          # list[core.models.Placement]
         self._beat_bpm = None                # current beat's BPM (for tempo match)
+        self._stretch_cache: dict = {}       # (path,ratio,pp) -> rendered wav path
         self._edited_ids: set = set()        # beats with unsaved edits (green rows)
         self._layers: dict = {}              # tag_path -> layer props
         self._beat_duration_sec = 0.0
@@ -397,6 +398,7 @@ class MainWindow(QMainWindow):
         self.waveform.tag_placed.connect(self._place_tag_at_fraction)
         self.waveform.marker_removed.connect(self._remove_marker)
         self.waveform.marker_moved.connect(self._move_marker)
+        self.waveform.clear_requested.connect(self._on_clear_tags)
         self.waveform.crop_changed.connect(self._on_crop_changed)
 
     # -- data --------------------------------------------------------------
@@ -1140,7 +1142,8 @@ class MainWindow(QMainWindow):
             if i not in self._fired_tags and self._last_pos_sec < p.position_sec <= pos_sec:
                 self._fired_tags.add(i)
                 if self._layer_active(p.tag_path):   # respect mute/solo/enable
-                    self.player.play_tag(p.tag_path, self._layer_volume(p.tag_path))
+                    path = self._playable_tag(p.tag_path, p.stretch_ratio, p.preserve_pitch)
+                    self.player.play_tag(path, self._layer_volume(p.tag_path))
         self._last_pos_sec = pos_sec
 
     def _seek_fraction(self, fraction: float) -> None:
@@ -1219,6 +1222,30 @@ class MainWindow(QMainWindow):
                 txt += f" — try {res['suggestion']}-time"
         self.tag_panel.set_stretch_display(txt)
 
+    def _playable_tag(self, tag_path: str, ratio: float, pp: bool) -> str:
+        """Path to actually play for a tag: the raw file, or a stretched render
+        when ratio != 1.0 so the tempo match is audible. Cached per render."""
+        if not ratio or abs(ratio - 1.0) < 1e-3:
+            return tag_path
+        key = (tag_path, round(ratio, 4), bool(pp))
+        cached = self._stretch_cache.get(key)
+        if cached and Path(cached).exists():
+            return cached
+        try:
+            import hashlib
+            import tempfile
+
+            from core import audio as core_audio
+            seg = core_stretch.stretch_segment(
+                core_audio.load_audio(tag_path), ratio, pp)
+            h = hashlib.md5(repr(key).encode()).hexdigest()[:10]
+            tmp = str(Path(tempfile.gettempdir()) / f"ph_tag_{h}.wav")
+            seg.export(tmp, format="wav")
+            self._stretch_cache[key] = tmp
+            return tmp
+        except Exception:  # noqa: BLE001 - any render failure -> play raw
+            return tag_path
+
     def _preview_stretch(self) -> None:
         if not self._active_tag:
             self.statusBar().showMessage("Select a tag to preview.", 2000)
@@ -1260,7 +1287,8 @@ class MainWindow(QMainWindow):
         self._placements.sort(key=lambda p: p.position_sec)
         self._refresh_markers(save=True)
         if self._layer_active(self._active_tag):  # instant audition on placement
-            self.player.play_tag(self._active_tag, self._layer_volume(self._active_tag))
+            path = self._playable_tag(self._active_tag, ratio, pp)
+            self.player.play_tag(path, self._layer_volume(self._active_tag))
 
     def _remove_marker(self, index: int) -> None:
         if 0 <= index < len(self._placements):
@@ -1833,6 +1861,8 @@ class MainWindow(QMainWindow):
             self.tag_panel.refresh_tags()
         if dlg.model_changed:
             self._warm_stem_model()
+        if dlg.audio_changed:
+            self.player.set_output_device(config.audio_output())
         if dlg.check_updates:
             self._manual_update_check = True
             self.update_checker.check_async(config.update_repo(), __version__)

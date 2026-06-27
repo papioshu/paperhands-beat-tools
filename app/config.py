@@ -98,6 +98,18 @@ def set_demucs_model(name: str) -> None:
         _settings().setValue(_DEMUCS_MODEL_KEY, name)
 
 
+_AUDIO_OUTPUT_KEY = "audio_output"
+
+
+def audio_output(default: str = "") -> str:
+    """Preferred audio output device *description* ("" = system default)."""
+    return str(_settings().value(_AUDIO_OUTPUT_KEY, default) or default)
+
+
+def set_audio_output(description: str) -> None:
+    _settings().setValue(_AUDIO_OUTPUT_KEY, description or "")
+
+
 def update_repo(default: str = None) -> str:
     """GitHub 'owner/name' the app checks for updates (empty = disabled)."""
     if default is None:

@@ -65,6 +65,43 @@ def test_initial_tag_selection_is_captured(tmp_path):
         config.set_tags_folder(old)
 
 
+def test_remove_tag_file_deletes_disk_and_catalog(tmp_path, monkeypatch):
+    from app import config
+    from app.ui.tag_panel import TagLibraryPanel
+    from PySide6.QtWidgets import QMessageBox
+
+    tagdir = tmp_path / "tags"
+    tagdir.mkdir()
+    tagfile = tagdir / "drop.wav"
+    tagfile.write_bytes(b"\x00\x00")
+    db = Database(str(tmp_path / "lib.db"))
+
+    old = config.tags_folder()
+    config.set_tags_folder(str(tagdir))
+    try:
+        panel = TagLibraryPanel(db)          # refresh_tags syncs the folder -> 1 tag
+        tid = panel._current_tag_id()
+        assert tid is not None
+        monkeypatch.setattr(QMessageBox, "question",
+                            lambda *a, **k: QMessageBox.Yes)
+        panel._remove_tag_file()
+        assert not tagfile.exists()                      # file gone from disk
+        assert db.list_tag_files() == []                 # catalog row gone
+        panel.refresh_tags()
+        assert db.list_tag_files() == []                 # and stays gone (no resync)
+    finally:
+        config.set_tags_folder(old)
+
+
+def test_playable_tag_passthrough_and_fallback(tmp_path):
+    win = _window_with_beat(tmp_path)
+    # ratio ~1.0 -> play the raw file, no render.
+    assert win._playable_tag("/x/a.wav", 1.0, True) == "/x/a.wav"
+    # Non-trivial ratio but an unloadable file -> safe fallback to raw, no crash.
+    assert win._playable_tag("/x/missing.wav", 1.5, True) == "/x/missing.wav"
+    win.close()
+
+
 def test_place_and_remove_tags(tmp_path):
     win = _window_with_beat(tmp_path)
     win._place_tag_at_fraction(0.10)   # 10s
@@ -133,7 +170,10 @@ def test_autoplace_dialog_computes_and_applies(tmp_path):
     dlg.min_spacing.setValue(10)
     win._placements = dlg.compute_for(100.0, [], None, None)
     win._refresh_markers(save=True)
-    assert [round(p.position_sec) for p in win._placements] == [0, 40, 80]
+    # First tag now lands 5-10s in (not at 0:00); spacing stays at the interval.
+    pos = [round(p.position_sec) for p in win._placements]
+    assert 5 <= pos[0] <= 10
+    assert [b - a for a, b in zip(pos, pos[1:])] == [40, 40]
     win.close()
 
 

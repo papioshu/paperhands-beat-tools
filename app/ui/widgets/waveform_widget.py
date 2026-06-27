@@ -17,7 +17,7 @@ from typing import List, Optional, Tuple
 
 from PySide6.QtCore import QPointF, Qt, Signal
 from PySide6.QtGui import QColor, QPainter, QPen
-from PySide6.QtWidgets import QWidget
+from PySide6.QtWidgets import QMenu, QWidget
 
 from app.theme import COLORS
 
@@ -32,6 +32,7 @@ class WaveformWidget(QWidget):
     marker_removed = Signal(int)          # marker index
     marker_moved = Signal(int, float)     # marker index, new 0..1 (global)
     crop_changed = Signal(float, float)   # start, end (0..1 global)
+    clear_requested = Signal()            # remove all markers (right-click menu)
 
     def __init__(self):
         super().__init__()
@@ -207,6 +208,17 @@ class WaveformWidget(QWidget):
             self.crop_changed.emit(self._crop[0], self._crop[1])
 
         self._reset_drag()
+
+    def contextMenuEvent(self, event):  # noqa: N802
+        """Right-click a marker to remove it, or clear all placed tags."""
+        if not self._markers:
+            return
+        idx = self._marker_index_at(event.pos().x())
+        menu = QMenu(self)
+        if idx is not None:
+            menu.addAction("Remove tag", lambda: self.marker_removed.emit(idx))
+        menu.addAction("Remove all tags", self.clear_requested.emit)
+        menu.exec(event.globalPos())
 
     # -- painting ----------------------------------------------------------
 

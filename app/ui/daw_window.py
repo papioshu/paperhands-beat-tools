@@ -257,6 +257,7 @@ class DawModeWindow(QMainWindow):
         self.tag_wave.tag_placed.connect(self._place_tag)
         self.tag_wave.marker_removed.connect(self._remove_marker)
         self.tag_wave.marker_moved.connect(self._move_marker)
+        self.tag_wave.clear_requested.connect(self._clear_tags)
         root.addWidget(self.tag_wave)
 
         controls = QHBoxLayout()

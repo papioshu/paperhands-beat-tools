@@ -8,6 +8,7 @@ profile across many selected beats (each computed from its own duration).
 from __future__ import annotations
 
 import random
+from pathlib import Path
 
 from PySide6.QtWidgets import (
     QCheckBox,
@@ -34,6 +35,13 @@ class AutoPlaceDialog(QDialog):
 
         layout = QVBoxLayout(self)
         form = QFormLayout()
+
+        # Which tag to place. "All enabled (rotate)" keeps the old behavior.
+        self.tag_choice = QComboBox()
+        self.tag_choice.addItem("All enabled (rotate)", None)
+        for p in self.tags:
+            self.tag_choice.addItem(Path(p).stem, p)
+        form.addRow("Tag", self.tag_choice)
 
         self.profile = QComboBox()
         self.profile.addItem("Custom")
@@ -117,11 +125,24 @@ class AutoPlaceDialog(QDialog):
                 params["include_outro"] = self.outro.isChecked()
         return mode, params, self.min_spacing.value()
 
+    def chosen_tags(self):
+        """The picked tag (one), or all enabled tags to rotate through."""
+        picked = self.tag_choice.currentData()
+        return [picked] if picked else list(self.tags)
+
     def compute_for(self, duration, structure, drop, hook):
         mode, params, min_spacing = self.settings()
+        rng = random.Random()
+        # First tag lands 5-10s in, not at 0:00 (per-beat varied in batch).
+        intro = round(rng.uniform(5.0, 10.0), 2)
+        if mode in ("intro", "fixed", "random", "structure"):
+            params.setdefault("intro_sec", intro)
+        elif mode == "fixed_times":
+            params["times"] = [intro if t < 5.0 else t
+                               for t in (params.get("times") or [])]
         return autoplace.suggest_placements(
-            mode, duration, self.tags, structure=structure, drop=drop, hook=hook,
-            min_spacing=min_spacing, rng=random.Random(), **params)
+            mode, duration, self.chosen_tags(), structure=structure, drop=drop,
+            hook=hook, min_spacing=min_spacing, rng=rng, **params)
 
     def _update_preview(self) -> None:
         duration, structure, drop, hook = self._ctx

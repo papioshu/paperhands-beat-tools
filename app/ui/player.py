@@ -41,9 +41,38 @@ class AudioPlayer(QObject):
             self._tag_player = QMediaPlayer()
             self._tag_player.setAudioOutput(self._tag_out)
             self.available = True
+
+            # Honor a user-chosen output device (empty = system default).
+            from app import config
+            self.set_output_device(config.audio_output())
         except Exception as exc:  # noqa: BLE001 - degrade, but remember why
             self._init_error = f"{type(exc).__name__}: {exc}"
             self.available = False
+
+    # -- output device -----------------------------------------------------
+
+    @staticmethod
+    def output_devices() -> list[str]:
+        """Descriptions of available output devices (for a settings picker)."""
+        from PySide6.QtMultimedia import QMediaDevices
+        return [d.description() for d in QMediaDevices.audioOutputs()]
+
+    def set_output_device(self, description: str) -> None:
+        """Route both channels to the named device; "" = system default."""
+        if not self.available:
+            return
+        from PySide6.QtMultimedia import QMediaDevices
+
+        dev = None
+        if description:
+            for d in QMediaDevices.audioOutputs():
+                if d.description() == description:
+                    dev = d
+                    break
+        if dev is None:
+            dev = QMediaDevices.defaultAudioOutput()
+        self._out.setDevice(dev)
+        self._tag_out.setDevice(dev)
 
     # -- tag audition ------------------------------------------------------
 

@@ -122,6 +122,25 @@ class SettingsDialog(QDialog):
         layout.addWidget(self.model_combo)
         self.model_combo.currentIndexChanged.connect(self._on_model_changed)
 
+        # Audio output device (where playback is heard)
+        audio_heading = QLabel("Audio output")
+        audio_heading.setObjectName("Heading")
+        layout.addWidget(audio_heading)
+        audio_hint = QLabel("Device used for beat/tag playback. "
+                            "“System default” follows your Windows default.")
+        audio_hint.setObjectName("SubHeading")
+        audio_hint.setWordWrap(True)
+        layout.addWidget(audio_hint)
+        self.audio_combo = QComboBox()
+        self.audio_combo.addItem("System default", "")
+        from app.ui.player import AudioPlayer
+        for desc in AudioPlayer.output_devices():
+            self.audio_combo.addItem(desc, desc)
+        cur_audio = config.audio_output()
+        self.audio_combo.setCurrentIndex(max(0, self.audio_combo.findData(cur_audio)))
+        layout.addWidget(self.audio_combo)
+        self.audio_combo.currentIndexChanged.connect(self._on_audio_changed)
+
         # Export options
         self.chk_master_wav = QCheckBox(
             "Convert clean master to WAV on export (default: copy verbatim)")
@@ -134,18 +153,11 @@ class SettingsDialog(QDialog):
         upd_heading = QLabel(f"Updates  —  current version {__version__}")
         upd_heading.setObjectName("Heading")
         layout.addWidget(upd_heading)
-        upd_hint = QLabel("GitHub repo (owner/name) to check for new releases.")
+        upd_hint = QLabel("Check GitHub for a newer release.")
         upd_hint.setObjectName("SubHeading")
         layout.addWidget(upd_hint)
-        upd_row = QHBoxLayout()
-        self.update_repo_edit = QLineEdit(config.update_repo())
-        self.update_repo_edit.setPlaceholderText("owner/repository")
         self.btn_check_updates = QPushButton("Check for updates")
-        upd_row.addWidget(self.update_repo_edit, 1)
-        upd_row.addWidget(self.btn_check_updates)
-        layout.addLayout(upd_row)
-        self.update_repo_edit.editingFinished.connect(
-            lambda: config.set_update_repo(self.update_repo_edit.text()))
+        layout.addWidget(self.btn_check_updates)
         self.btn_check_updates.clicked.connect(self._check_updates)
 
         close_row = QHBoxLayout()
@@ -167,6 +179,11 @@ class SettingsDialog(QDialog):
         self.tags_changed = False     # whether the tag library folder changed
         self.check_updates = False    # whether the user asked to check for updates
         self.model_changed = False    # whether the stem model selection changed
+        self.audio_changed = False    # whether the output device selection changed
+
+    def _on_audio_changed(self) -> None:
+        config.set_audio_output(self.audio_combo.currentData())
+        self.audio_changed = True
 
     def _on_model_changed(self) -> None:
         name = self.model_combo.currentData()
@@ -188,7 +205,6 @@ class SettingsDialog(QDialog):
             self.list.takeItem(self.list.row(item))
 
     def _check_updates(self) -> None:
-        config.set_update_repo(self.update_repo_edit.text())
         self.check_updates = True
         self.accept()       # main window runs the check after the dialog closes
 

@@ -7,6 +7,7 @@ tag to place. Folder changes re-sync new files into the library.
 
 from __future__ import annotations
 
+import os
 from typing import Optional
 
 from PySide6.QtCore import Qt, Signal
@@ -19,6 +20,8 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QInputDialog,
     QLabel,
+    QMenu,
+    QMessageBox,
     QPushButton,
     QTreeWidget,
     QTreeWidgetItem,
@@ -121,6 +124,7 @@ class TagLibraryPanel(QFrame):
         self.native_bpm.setSpecialValueText("—")     # 0 shows as "not set"
         t1.addWidget(self.native_bpm)
         self.match_toggle = QCheckBox("Match beat")
+        self.match_toggle.setChecked(True)   # auto-match each selected beat's tempo
         t1.addWidget(self.match_toggle)
         layout.addLayout(t1)
 
@@ -182,6 +186,8 @@ class TagLibraryPanel(QFrame):
         self.tree.currentItemChanged.connect(self._on_tag_changed)
         self.tree.itemChanged.connect(self._on_item_changed)
         self.tree.itemDoubleClicked.connect(lambda *_: self.preview_tag_requested.emit())
+        self.tree.setContextMenuPolicy(Qt.CustomContextMenu)
+        self.tree.customContextMenuRequested.connect(self._tree_context_menu)
         self.btn_place.toggled.connect(self._on_place_toggled)
         self.btn_crop.toggled.connect(self._on_crop_toggled)
         self.btn_auto.clicked.connect(self.autoplace_requested)
@@ -343,3 +349,37 @@ class TagLibraryPanel(QFrame):
         if ok:
             self.db.update_tag_file(tid, category=text.strip() or "Uncategorized")
             self.refresh_tags()
+
+    def _tree_context_menu(self, pos) -> None:
+        item = self.tree.itemAt(pos)
+        if item is None or item.data(0, _ID_ROLE) is None:
+            return                                  # header/category row, not a tag
+        self.tree.setCurrentItem(item)
+        menu = QMenu(self)
+        menu.addAction("Preview", self.preview_tag_requested.emit)
+        menu.addAction("Toggle favorite", self._toggle_favorite)
+        menu.addAction("Set category…", self._set_category)
+        menu.addSeparator()
+        menu.addAction("Remove from library", self._remove_tag_file)
+        menu.exec(self.tree.viewport().mapToGlobal(pos))
+
+    def _remove_tag_file(self) -> None:
+        tid = self._current_tag_id()
+        if tid is None:
+            return
+        row = self.db.get_tag_file(tid)
+        # The library re-syncs from the folder, so removal must delete the file
+        # too or it reappears on the next refresh. Destructive -> confirm first.
+        resp = QMessageBox.question(
+            self, "Remove tag",
+            f"Remove “{row['name']}” from the library?\n\n"
+            f"This permanently deletes the file from disk:\n{row['path']}",
+            QMessageBox.Yes | QMessageBox.Cancel, QMessageBox.Cancel)
+        if resp != QMessageBox.Yes:
+            return
+        try:
+            os.remove(row["path"])
+        except OSError:
+            pass                                    # already gone; still drop the row
+        self.db.remove_tag_file(tid)
+        self.refresh_tags()
