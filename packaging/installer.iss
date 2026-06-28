@@ -4,7 +4,11 @@
 
 #define MyAppName "Paperhand Beat Manager"
 #define MyAppExeName "PaperhandsBeatTools.exe"
-#define MyAppVersion "1.0.1"
+; Version is passed in by build.ps1 (ISCC /DMyAppVersion=...) from app/version.py,
+; the single source of truth. The fallback only applies if ISCC is run by hand.
+#ifndef MyAppVersion
+  #define MyAppVersion "0.0.0"
+#endif
 #define MyAppPublisher "Paperhand"
 #define MyAppURL "https://github.com/papioshu/paperhands-beat-tools"
 

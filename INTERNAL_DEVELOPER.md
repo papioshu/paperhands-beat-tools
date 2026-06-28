@@ -24,13 +24,21 @@ Prereqs (one time): `pip install pyinstaller`, ffmpeg installed, Inno Setup 6
 (`winget install JRSoftware.InnoSetup`).
 ```powershell
 powershell -ExecutionPolicy Bypass -File packaging\build.ps1
+# add -SkipBundle to reuse an existing dist\ (skip the slow PyInstaller step)
 ```
 PyInstaller (`packaging/BeatTools.spec`) builds `dist/PaperhandsBeatTools/`
 (bundled ffmpeg + icon); Inno Setup (`packaging/installer.iss`) produces
 `packaging/Output/PaperhandsBeatTools-Setup-<version>.exe`.
 
+The version is single-sourced from `app/version.py`: `build.ps1` reads it,
+injects it into Inno Setup (`/DMyAppVersion`), names every artifact with it, and
+**prunes any Output file from another version**. Inno Setup is optional — without
+it, only the portable ZIP is built. A `pre-commit` hook warns (never blocks) if
+`packaging/Output` doesn't match the current version.
+
 ## Cut a release
-1. Bump the version in `app/version.py` **and** `packaging/installer.iss`.
+1. Bump the version in `app/version.py` (single source — `installer.iss` and all
+   Output artifact names derive from it via `build.ps1`).
 2. Run the tests, then `packaging\build.ps1`.
 3. Tag + publish:
    ```powershell
@@ -69,7 +77,8 @@ verifies a download against the published `<asset>.sha256` and refuses on
 mismatch.
 
 ## Release-build checklist
-- [ ] `app/version.py` + `installer.iss` versions match.
+- [ ] `packaging/Output` holds only current-version files (`build.ps1` prunes;
+      the pre-commit hook warns if not).
 - [ ] `python -m pytest tests/ -q` green.
 - [ ] No dev artifacts ship: `tests/`, `__pycache__/`, `*.spec`, `build/`,
       `packaging/`, internal docs, and `assets/papercrane-accurate.png` are NOT
