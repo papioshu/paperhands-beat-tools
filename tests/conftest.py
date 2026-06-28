@@ -19,3 +19,26 @@ def _isolate_settings(tmp_path_factory, monkeypatch):
     ini = tmp_path_factory.mktemp("settings") / "app.ini"
     store = QSettings(str(ini), QSettings.IniFormat)
     monkeypatch.setattr("app.config._settings", lambda: store, raising=False)
+
+
+@pytest.fixture(autouse=True)
+def _mute_audio(monkeypatch):
+    """Keep the test suite silent. Qt's audio output still plays under the
+    offscreen platform, so GUI tests that hit play()/play_tag() would blast
+    real tag/beat audio out the default device. Mute every player's output."""
+    try:
+        from app.ui import player as player_mod
+    except Exception:        # no Qt -> pure tests, nothing to mute
+        return
+    orig_init = player_mod.AudioPlayer.__init__
+
+    def muted_init(self, *args, **kwargs):
+        orig_init(self, *args, **kwargs)
+        if getattr(self, "available", False):
+            try:
+                self._out.setMuted(True)
+                self._tag_out.setMuted(True)
+            except Exception:
+                pass
+
+    monkeypatch.setattr(player_mod.AudioPlayer, "__init__", muted_init)

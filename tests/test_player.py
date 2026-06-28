@@ -30,6 +30,14 @@ def test_player_is_available():
     assert p.available, f"player unavailable: {getattr(p, '_init_error', '')}"
 
 
+def test_outputs_muted_during_tests():
+    # The conftest _mute_audio fixture must silence every player, or test runs
+    # blast real tag/beat audio out the default device.
+    _app()
+    p = AudioPlayer()
+    assert p._out.isMuted() and p._tag_out.isMuted()
+
+
 def test_position_and_duration_forward_as_ints():
     _app()
     p = AudioPlayer()
