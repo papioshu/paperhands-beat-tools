@@ -40,3 +40,6 @@ brag-output/
 
 # Built library database
 library.db
+
+# Local run shortcut (machine-specific paths)
+*.lnk
