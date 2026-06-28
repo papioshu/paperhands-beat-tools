@@ -93,6 +93,23 @@ def test_remove_tag_file_hides_nondestructively(tmp_path, monkeypatch):
         config.set_tags_folder(old)
 
 
+def test_batch_clear_tags_empties_placements(tmp_path, monkeypatch):
+    import json
+    from PySide6.QtWidgets import QMessageBox
+
+    win = _window_with_beat(tmp_path)
+    win._place_tag_at_fraction(0.1)
+    win._place_tag_at_fraction(0.5)
+    bid = win._current_beat_id
+    assert json.loads(win.db.get_beat(bid)["placements"])      # tags present
+
+    monkeypatch.setattr(QMessageBox, "question", lambda *a, **k: QMessageBox.Yes)
+    win._batch_clear_tags()
+    assert json.loads(win.db.get_beat(bid)["placements"]) == []  # all cleared
+    assert win._placements == []                                 # current view too
+    win.close()
+
+
 def test_playable_tag_passthrough_and_fallback(tmp_path):
     win = _window_with_beat(tmp_path)
     # ratio ~1.0 -> play the raw file, no render.

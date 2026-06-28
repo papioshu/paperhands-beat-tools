@@ -207,6 +207,8 @@ class MainWindow(QMainWindow):
         batch_menu.addAction("Export Tagged Previews", self._batch_export_previews)
         batch_menu.addAction("Generate Buyer Packages", self._batch_buyer_packages)
         batch_menu.addAction("Split Stems", self._split_stems)
+        batch_menu.addSeparator()
+        batch_menu.addAction("Clear All Tags…", self._batch_clear_tags)
         self.btn_batch.setMenu(batch_menu)
         self.btn_duplicates = QPushButton("Duplicates")
         self.btn_daw = QPushButton("DAW Mode")
@@ -1533,6 +1535,27 @@ class MainWindow(QMainWindow):
     def _on_clear_tags(self) -> None:
         self._placements = []
         self._refresh_markers(save=True)
+
+    def _batch_clear_tags(self) -> None:
+        """Remove all placed tags + layer mixes from the checked/selected beats."""
+        ids = self._selected_beat_ids()
+        if not ids:  # nothing selected -> offer the whole filtered view
+            ids = [b["id"] for b in self.db.list_beats(search=self.search.text() or None)]
+        if not ids:
+            self.statusBar().showMessage("No beats to clear.", 3000)
+            return
+        resp = QMessageBox.question(
+            self, "Clear all tags",
+            f"Remove all placed tags from {len(ids)} beat(s)?\n\n"
+            f"This clears tag placements and layer mixes. Audio files and "
+            f"metadata are untouched.",
+            QMessageBox.Yes | QMessageBox.Cancel, QMessageBox.Cancel)
+        if resp != QMessageBox.Yes:
+            return
+        for bid in ids:
+            self.db.update_beat(bid, placements="[]", layers="{}")
+        self.statusBar().showMessage(f"Cleared tags from {len(ids)} beat(s)", 3000)
+        self._on_selection()   # reload the current beat's (now empty) markers
 
     # -- non-destructive export workflow ----------------------------------
     #
