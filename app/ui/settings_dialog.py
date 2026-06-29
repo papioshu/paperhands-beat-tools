@@ -104,6 +104,20 @@ class SettingsDialog(QDialog):
         backup_row.addStretch(1)
         layout.addLayout(backup_row)
 
+        # Clear library (non-destructive)
+        clear_hint = QLabel("Empty the beat catalog. Your audio files and the "
+                            "producer-tag library are NOT touched — only the "
+                            "list of cataloged beats is cleared.")
+        clear_hint.setObjectName("SubHeading")
+        clear_hint.setWordWrap(True)
+        layout.addWidget(clear_hint)
+        clear_row = QHBoxLayout()
+        self.btn_clear_library = QPushButton("Clear library…")
+        clear_row.addWidget(self.btn_clear_library)
+        clear_row.addStretch(1)
+        layout.addLayout(clear_row)
+        self.btn_clear_library.clicked.connect(self._clear_library)
+
         # Stem separation model
         model_heading = QLabel("Stem separation model")
         model_heading.setObjectName("Heading")
@@ -180,6 +194,25 @@ class SettingsDialog(QDialog):
         self.check_updates = False    # whether the user asked to check for updates
         self.model_changed = False    # whether the stem model selection changed
         self.audio_changed = False    # whether the output device selection changed
+
+    def _clear_library(self) -> None:
+        n = len(self.db.list_beats())
+        if n == 0:
+            QMessageBox.information(self, "Clear library", "The library is already empty.")
+            return
+        resp = QMessageBox.question(
+            self, "Clear library",
+            f"Remove all {n} beat(s) from the catalog?\n\n"
+            f"Your audio files on disk and the producer-tag library are NOT "
+            f"deleted — only the cataloged list is cleared. Re-scan a folder to "
+            f"bring beats back.",
+            QMessageBox.Yes | QMessageBox.Cancel, QMessageBox.Cancel)
+        if resp != QMessageBox.Yes:
+            return
+        removed = self.db.clear_beats()
+        self.catalog_changed = True   # main window refreshes the (now empty) table
+        QMessageBox.information(self, "Library cleared",
+                               f"Removed {removed} beat(s) from the catalog.")
 
     def _on_audio_changed(self) -> None:
         config.set_audio_output(self.audio_combo.currentData())

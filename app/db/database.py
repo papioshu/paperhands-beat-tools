@@ -214,6 +214,17 @@ class Database:
         self.conn.execute("DELETE FROM beats WHERE id = ?", (beat_id,))
         self.conn.commit()
 
+    def clear_beats(self) -> int:
+        """Empty the beat catalog (beats + their per-beat descriptive tags).
+        Non-destructive: audio files on disk and the producer-tag library
+        (producer_tags) are untouched. Returns the number of beats removed."""
+        n = self.conn.execute("SELECT COUNT(*) AS c FROM beats").fetchone()["c"]
+        self.conn.execute("DELETE FROM beat_tags")
+        self.conn.execute("DELETE FROM beats")
+        self.conn.execute("DELETE FROM tags")   # orphaned descriptive tag names
+        self.conn.commit()
+        return n
+
     def list_beats(
         self,
         search: Optional[str] = None,

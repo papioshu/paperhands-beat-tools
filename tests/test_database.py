@@ -25,6 +25,20 @@ def test_add_and_get_beat(db):
     assert row["analysis_status"] == "pending"
 
 
+def test_clear_beats_is_nondestructive_to_tag_library(db):
+    b1 = db.add_beat("/music/Night.mp3", "Night.mp3")
+    db.set_tags(b1, ["dark", "melodic"])           # per-beat descriptive tags
+    db.add_beat("/music/Sun.mp3", "Sun.mp3")
+    db.add_tag_file("/tags/yoru.wav", "yoru")      # producer-tag library entry
+
+    removed = db.clear_beats()
+    assert removed == 2
+    assert db.list_beats() == []                    # catalog emptied
+    assert db.get_tags(b1) == []                     # per-beat tags gone with beats
+    # The producer-tag library is untouched.
+    assert [t["name"] for t in db.list_tag_files()] == ["yoru"]
+
+
 def test_add_is_idempotent_by_path(db):
     a = db.add_beat("/music/Night.mp3", "Night.mp3")
     b = db.add_beat("/music/Night.mp3", "Night.mp3")
