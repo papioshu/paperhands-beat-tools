@@ -19,22 +19,24 @@ python -m pytest tests/ -q
 ```
 Audio integration tests need ffmpeg on PATH; they skip cleanly otherwise.
 
-## Build the installer
-Prereqs (one time): `pip install pyinstaller`, ffmpeg installed, Inno Setup 6
-(`winget install JRSoftware.InnoSetup`).
+## Build
+Prereqs (one time): `pip install pyinstaller`, ffmpeg installed. Inno Setup 6
+(`winget install JRSoftware.InnoSetup`) only for `-Release`.
 ```powershell
 powershell -ExecutionPolicy Bypass -File packaging\build.ps1
-# add -SkipBundle to reuse an existing dist\ (skip the slow PyInstaller step)
+# -SkipBundle  reuse an existing dist\ (skip the slow PyInstaller step)
+# -Release     also build the Setup.exe installer + portable ZIP + SHA256s
 ```
 PyInstaller (`packaging/BeatTools.spec`) builds `dist/PaperhandsBeatTools/`
-(bundled ffmpeg + icon); Inno Setup (`packaging/installer.iss`) produces
-`packaging/Output/PaperhandsBeatTools-Setup-<version>.exe`.
+(bundled ffmpeg + icon). **Default:** the runnable bundle is copied to
+`packaging/Output/PaperhandsBeatTools-<version>/` — double-click the exe inside,
+no unzip/install. **`-Release`:** Inno Setup (`packaging/installer.iss`) also
+emits `Setup-<version>.exe` + the portable ZIP + checksums for GitHub releases.
 
-The version is single-sourced from `app/version.py`: `build.ps1` reads it,
-injects it into Inno Setup (`/DMyAppVersion`), names every artifact with it, and
-**prunes any Output file from another version**. Inno Setup is optional — without
-it, only the portable ZIP is built. A `pre-commit` hook warns (never blocks) if
-`packaging/Output` doesn't match the current version.
+The version is single-sourced from `app/version.py`: `build.ps1` reads it, names
+every artifact with it, injects it into Inno Setup (`/DMyAppVersion`), and
+**prunes any Output entry from another version**. A `pre-commit` hook warns
+(never blocks) if `packaging/Output` doesn't match the current version.
 
 ## Cut a release
 1. Bump the version in `app/version.py` (single source — `installer.iss` and all
