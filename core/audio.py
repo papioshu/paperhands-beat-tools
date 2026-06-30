@@ -80,7 +80,7 @@ def apply_placements(
     for p in filter_placements(placements, layers or {}):
         tag = tag_cache[p.tag_path]
         ratio = getattr(p, "stretch_ratio", 1.0)
-        if ratio and abs(ratio - 1.0) > 1e-3:
+        if ratio and abs(ratio - 1.0) >= _stretch.NOOP_TOLERANCE:
             pp = getattr(p, "preserve_pitch", True)
             key = (p.tag_path, round(ratio, 4), pp)
             if key not in stretched_cache:

@@ -118,6 +118,13 @@ class MainWindow(QMainWindow):
         self.export_signals.error.connect(self._on_export_error)
         self._exporting = False
 
+        # Stretched-tag audition: render off the UI thread, play when ready.
+        self.audition_signals = ExportSignals()
+        self.audition_signals.done.connect(self._on_audition_ready)
+        self.audition_signals.error.connect(
+            lambda m: self.statusBar().showMessage(f"Preview failed: {m}", 3000))
+        self._pending_audition_volume = 1.0
+
         # Tag placement state (Phase 5)
         self._active_tag = None
         self._placements: list = []          # list[core.models.Placement]
@@ -1144,8 +1151,8 @@ class MainWindow(QMainWindow):
             if i not in self._fired_tags and self._last_pos_sec < p.position_sec <= pos_sec:
                 self._fired_tags.add(i)
                 if self._layer_active(p.tag_path):   # respect mute/solo/enable
-                    path = self._playable_tag(p.tag_path, p.stretch_ratio, p.preserve_pitch)
-                    self.player.play_tag(path, self._layer_volume(p.tag_path))
+                    self._audition_stretched(p.tag_path, p.stretch_ratio,
+                                             p.preserve_pitch, self._layer_volume(p.tag_path))
         self._last_pos_sec = pos_sec
 
     def _seek_fraction(self, fraction: float) -> None:
@@ -1217,6 +1224,9 @@ class MainWindow(QMainWindow):
             self.tag_panel.set_stretch_display("Stretch: set Tag BPM + analyze beat")
             return
         res = core_stretch.compute(self._beat_bpm, s["native_bpm"], s["mode"])
+        if abs(res["ratio"] - 1.0) < core_stretch.NOOP_TOLERANCE:
+            self.tag_panel.set_stretch_display("Stretch: 1.00× (no change)")
+            return
         txt = f"Stretch: {res['ratio']:.2f}×"
         if not res["in_limits"]:
             txt += "  ⚠ out of range"
@@ -1224,47 +1234,58 @@ class MainWindow(QMainWindow):
                 txt += f" — try {res['suggestion']}-time"
         self.tag_panel.set_stretch_display(txt)
 
-    def _playable_tag(self, tag_path: str, ratio: float, pp: bool) -> str:
-        """Path to actually play for a tag: the raw file, or a stretched render
-        when ratio != 1.0 so the tempo match is audible. Cached per render."""
-        if not ratio or abs(ratio - 1.0) < 1e-3:
-            return tag_path
-        key = (tag_path, round(ratio, 4), bool(pp))
+    def _stretch_key(self, tag_path: str, ratio: float, pp: bool) -> tuple:
+        return (tag_path, round(ratio, 4), bool(pp))
+
+    def _render_stretch(self, tag_path: str, ratio: float, pp: bool) -> str:
+        """Render a stretched tag to a cached temp wav. Runs off the UI thread
+        (the librosa phase vocoder is too slow to block on). Returns the path."""
+        key = self._stretch_key(tag_path, ratio, pp)
         cached = self._stretch_cache.get(key)
         if cached and Path(cached).exists():
             return cached
-        try:
-            import hashlib
-            import tempfile
+        import hashlib
+        import tempfile
 
-            from core import audio as core_audio
-            seg = core_stretch.stretch_segment(
-                core_audio.load_audio(tag_path), ratio, pp)
-            h = hashlib.md5(repr(key).encode()).hexdigest()[:10]
-            tmp = str(Path(tempfile.gettempdir()) / f"ph_tag_{h}.wav")
-            seg.export(tmp, format="wav")
-            self._stretch_cache[key] = tmp
-            return tmp
-        except Exception:  # noqa: BLE001 - any render failure -> play raw
-            return tag_path
+        from core import audio as core_audio
+        seg = core_stretch.stretch_segment(core_audio.load_audio(tag_path), ratio, pp)
+        h = hashlib.md5(repr(key).encode()).hexdigest()[:10]
+        tmp = str(Path(tempfile.gettempdir()) / f"ph_tag_{h}.wav")
+        seg.export(tmp, format="wav")
+        self._stretch_cache[key] = tmp   # ponytail: GIL-atomic; add a lock if renders ever run concurrently
+        return tmp
+
+    def _audition_stretched(self, tag_path: str, ratio: float, pp: bool,
+                            volume: float = 1.0) -> None:
+        """Play a tag at the given stretch. No stretch / already-rendered plays
+        instantly; otherwise render off the UI thread and play when ready so the
+        transport never freezes."""
+        if not tag_path:
+            return
+        if not ratio or abs(ratio - 1.0) < core_stretch.NOOP_TOLERANCE:
+            self.player.play_tag(tag_path, volume)   # imperceptible stretch -> play raw
+            return
+        cached = self._stretch_cache.get(self._stretch_key(tag_path, ratio, pp))
+        if cached and Path(cached).exists():
+            self.player.play_tag(cached, volume)
+            return
+        self._pending_audition_volume = volume
+        self.statusBar().showMessage("Rendering stretched preview…")
+        self.pool.start(FunctionExportRunnable(
+            lambda: self._render_stretch(tag_path, ratio, pp), self.audition_signals))
+
+    def _on_audition_ready(self, path: str) -> None:
+        self.statusBar().clearMessage()
+        if path:
+            self.player.play_tag(path, self._pending_audition_volume)
 
     def _preview_stretch(self) -> None:
         if not self._active_tag:
             self.statusBar().showMessage("Select a tag to preview.", 2000)
             return
         ratio, pp = self._compute_stretch()
-        try:
-            import tempfile
-
-            from core import audio as core_audio
-            seg = core_stretch.stretch_segment(
-                core_audio.load_audio(self._active_tag), ratio, pp)
-            tmp = str(Path(tempfile.gettempdir()) / "ph_tag_preview.wav")
-            seg.export(tmp, format="wav")
-        except Exception as exc:  # noqa: BLE001 - preview is best-effort
-            self.statusBar().showMessage(f"Preview failed: {exc}", 3000)
-            return
-        self.player.play_tag(tmp, self._layer_volume(self._active_tag))
+        self._audition_stretched(self._active_tag, ratio, pp,
+                                 self._layer_volume(self._active_tag))
 
     def _open_stretch_editor(self) -> None:
         if not self._placements:
@@ -1289,8 +1310,8 @@ class MainWindow(QMainWindow):
         self._placements.sort(key=lambda p: p.position_sec)
         self._refresh_markers(save=True)
         if self._layer_active(self._active_tag):  # instant audition on placement
-            path = self._playable_tag(self._active_tag, ratio, pp)
-            self.player.play_tag(path, self._layer_volume(self._active_tag))
+            self._audition_stretched(self._active_tag, ratio, pp,
+                                     self._layer_volume(self._active_tag))
 
     def _remove_marker(self, index: int) -> None:
         if 0 <= index < len(self._placements):
@@ -1346,7 +1367,7 @@ class MainWindow(QMainWindow):
         out = []
         for p in placements:
             d = {"pos": p.position_sec, "tag": p.tag_path}
-            if abs(p.stretch_ratio - 1.0) > 1e-3:
+            if abs(p.stretch_ratio - 1.0) >= core_stretch.NOOP_TOLERANCE:
                 d["ratio"] = round(p.stretch_ratio, 4)
                 d["pp"] = p.preserve_pitch
             out.append(d)

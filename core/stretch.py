@@ -16,28 +16,36 @@ from __future__ import annotations
 from typing import Optional
 
 LIMITS = (0.85, 1.25)               # safe normal-mode stretch range
-_MODE_FACTOR = {"normal": 1.0, "half": 0.5, "double": 2.0}
+# Playback-speed multiplier on the tempo match: double-time plays the tag twice
+# as fast, half-time half as fast (literal speed, matching producer intuition).
+_MODE_SPEED = {"normal": 1.0, "half": 0.5, "double": 2.0}
+
+# Stretches this close to 1.0 are inaudible as tempo but still warble through the
+# phase vocoder (and round to "1.00×" in the UI), so we treat them as no-ops.
+# ponytail: 2% is a musical-negligibility knob — tighten if users want a harder lock.
+NOOP_TOLERANCE = 0.02
 
 
 def compute(beat_bpm: Optional[float], tag_bpm: Optional[float],
             mode: str = "normal", limits=LIMITS) -> dict:
     """Stretch ratio to lock a tag (``tag_bpm``) to a beat (``beat_bpm``).
 
-    ``mode`` shifts the tag's effective tempo: normal=x1, half=x0.5, double=x2,
-    so a 70-BPM tag can fit a 140-BPM beat in double-time at ratio ~1.0.
+    ``mode`` is a literal playback-speed multiplier on the tempo match: normal=x1,
+    half plays the tag at half speed, double at double. So a 140-BPM tag over a
+    70-BPM beat (normal ratio 0.5, too slow) locks at ratio ~1.0 in double-time.
 
     Returns ``{ratio, in_limits, suggestion}``. ``suggestion`` is "half"/"double"
-    when a normal stretch falls outside ``limits`` (else None).
+    when a normal stretch falls outside ``limits`` (else None): too-fast suggests
+    half (slow it down), too-slow suggests double (speed it up).
     """
     if not beat_bpm or not tag_bpm or tag_bpm <= 0:
         return {"ratio": 1.0, "in_limits": True, "suggestion": None}
-    effective = tag_bpm * _MODE_FACTOR.get(mode, 1.0)
-    ratio = beat_bpm / effective
+    ratio = (beat_bpm / tag_bpm) * _MODE_SPEED.get(mode, 1.0)
     lo, hi = limits
     in_limits = lo <= ratio <= hi
     suggestion = None
     if mode == "normal" and not in_limits:
-        suggestion = "double" if ratio > hi else "half"
+        suggestion = "half" if ratio > hi else "double"
     return {"ratio": ratio, "in_limits": in_limits, "suggestion": suggestion}
 
 
@@ -47,7 +55,7 @@ def stretch_segment(seg, ratio: float, preserve_pitch: bool = True):
     No-op for ratios within 0.001 of 1.0. Ratio is hard-clamped to [0.1, 10] as a
     final safety rail regardless of caller limits.
     """
-    if not ratio or abs(ratio - 1.0) < 1e-3:
+    if not ratio or abs(ratio - 1.0) < NOOP_TOLERANCE:
         return seg
     ratio = max(0.1, min(10.0, ratio))
 

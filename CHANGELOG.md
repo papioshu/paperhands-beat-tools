@@ -1,5 +1,17 @@
 # Changelog
 
+## 1.2.9
+- Tag stretch/BPM-match preview no longer freezes the UI: the phase-vocoder
+  render runs off the UI thread (preview, place-on-click, and live playback) and
+  plays when ready; unchanged/already-rendered tags play instantly.
+- Fixed tags sounding slightly slowed/warbled at "1.00×": stretches within 2% of
+  1.0 are inaudible as tempo but warbled through the vocoder — now treated as
+  no-ops everywhere (preview, export, save).
+- **Half-Time / Double-Time are now literal speeds**: Double-Time plays the tag
+  ~2× faster, Half-Time ~2× slower (previously inverted). The out-of-range
+  suggestion flips to match. Tags placed in these modes before this version keep
+  their old ratio until re-applied.
+
 ## 1.2.2
 - Right-click menu on the library list: Remove from library, Mark / Unmark for
   Auto Tags.

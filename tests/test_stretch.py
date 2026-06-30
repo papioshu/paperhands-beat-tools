@@ -10,19 +10,28 @@ def test_compute_normal_in_limits():
     assert r["ratio"] == 1.0 and r["in_limits"] and r["suggestion"] is None
 
 
-def test_compute_suggests_double_when_too_fast():
+def test_compute_suggests_half_when_too_fast():
+    # Normal match too fast -> slow it down with half-time.
     r = stretch.compute(140, 70, "normal")
-    assert r["ratio"] == 2.0 and not r["in_limits"] and r["suggestion"] == "double"
+    assert r["ratio"] == 2.0 and not r["in_limits"] and r["suggestion"] == "half"
 
 
-def test_compute_suggests_half_when_too_slow():
+def test_compute_suggests_double_when_too_slow():
+    # Normal match too slow -> speed it up with double-time.
     r = stretch.compute(60, 120, "normal")
-    assert r["ratio"] == 0.5 and r["suggestion"] == "half"
+    assert r["ratio"] == 0.5 and r["suggestion"] == "double"
 
 
 def test_compute_double_time_fits():
-    r = stretch.compute(140, 70, "double")
+    # 120-BPM tag over a 60-BPM beat: normal=0.5 (too slow), double-time = 1.0.
+    r = stretch.compute(60, 120, "double")
     assert r["ratio"] == 1.0 and r["in_limits"]
+
+
+def test_mode_speed_is_literal():
+    # Same tag+beat: double-time is faster than half-time (the user-facing fix).
+    assert stretch.compute(140, 140, "double")["ratio"] == 2.0   # twice as fast
+    assert stretch.compute(140, 140, "half")["ratio"] == 0.5     # half speed
 
 
 def test_compute_missing_bpm_is_noop():
@@ -33,6 +42,14 @@ def test_compute_missing_bpm_is_noop():
 def test_stretch_segment_noop_at_one():
     seg = pytest.importorskip("pydub").AudioSegment.silent(duration=1000)
     assert stretch.stretch_segment(seg, 1.0) is seg
+
+
+def test_stretch_segment_negligible_ratio_is_noop():
+    # A ~1% ratio rounds to "1.00x" in the UI and is inaudible as tempo, so it
+    # must NOT be phase-vocoded (that warble was the "all tags sound slowed" bug).
+    seg = pytest.importorskip("pydub").AudioSegment.silent(duration=1000)
+    assert stretch.stretch_segment(seg, 0.99) is seg
+    assert stretch.stretch_segment(seg, 1.01) is seg
 
 
 def test_stretch_segment_tape_halves_length():
