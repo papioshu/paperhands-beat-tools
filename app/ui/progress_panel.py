@@ -12,7 +12,7 @@ import time
 from pathlib import Path
 from typing import Optional
 
-from PySide6.QtCore import QUrl, Qt
+from PySide6.QtCore import QUrl, Qt, Signal
 from PySide6.QtGui import QDesktopServices
 from PySide6.QtWidgets import (
     QFrame,
@@ -26,6 +26,8 @@ from PySide6.QtWidgets import (
 
 
 class ProgressPanel(QFrame):
+    cancelled = Signal()   # user asked to stop the current batch
+
     def __init__(self):
         super().__init__()
         self.setObjectName("Panel")
@@ -50,6 +52,12 @@ class ProgressPanel(QFrame):
         self.btn_log.setFixedWidth(60)
         self.btn_log.toggled.connect(self._toggle_log)
         top.addWidget(self.btn_log)
+        self.btn_cancel = QPushButton("Cancel")
+        self.btn_cancel.setFixedWidth(70)
+        self.btn_cancel.setToolTip("Stop queuing the rest of this batch")
+        self.btn_cancel.clicked.connect(self.cancelled)
+        self.btn_cancel.hide()
+        top.addWidget(self.btn_cancel)
         outer.addLayout(top)
 
         bars = QHBoxLayout()
@@ -79,6 +87,7 @@ class ProgressPanel(QFrame):
         self.total.setRange(0, max(1, total))
         self.total.setValue(0)
         self._t0 = time.monotonic()
+        self.btn_cancel.show()
         self.show()
 
     def update(self, done: int, total: int, current_text: Optional[str] = None) -> None:
@@ -107,6 +116,7 @@ class ProgressPanel(QFrame):
         self.log.appendPlainText(text)
 
     def end(self, message: str, folder: Optional[str] = None) -> None:
+        self.btn_cancel.hide()
         self.busy.setRange(0, 1)
         self.busy.setValue(1)
         self.status.setText(message)

@@ -22,6 +22,19 @@ def _app():
     return QApplication.instance() or QApplication([])
 
 
+def test_cancel_button_emits_signal():
+    _app()
+    p = ProgressPanel()
+    fired = []
+    p.cancelled.connect(lambda: fired.append(True))
+    p.begin("Analyzing", total=3)
+    assert p.btn_cancel.isVisible()
+    p.btn_cancel.click()
+    assert fired == [True]
+    p.end("Cancelled")
+    assert not p.btn_cancel.isVisible()
+
+
 def test_progress_panel_lifecycle():
     _app()
     p = ProgressPanel()
