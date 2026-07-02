@@ -19,7 +19,7 @@ from typing import Iterable, List, Optional
 # Columns a caller may freely update via update_beat().
 _EDITABLE = {
     "title", "bpm", "key", "genre", "subgenre", "mood", "notes",
-    "duration_sec", "file_size", "waveform_path", "analysis_status",
+    "duration_sec", "file_size", "file_mtime", "waveform_path", "analysis_status",
     "file_path", "filename", "placements",
     "bpm_confidence", "key_confidence", "bpm_candidates", "key_candidates",
     "fingerprint", "structure", "drop_sec", "hook_start", "hook_end",
@@ -45,6 +45,7 @@ _MIGRATIONS = {
     "stems": "ALTER TABLE beats ADD COLUMN stems TEXT",
     "ignored": "ALTER TABLE beats ADD COLUMN ignored INTEGER DEFAULT 0",
     "auto_tag": "ALTER TABLE beats ADD COLUMN auto_tag INTEGER DEFAULT 0",
+    "file_mtime": "ALTER TABLE beats ADD COLUMN file_mtime REAL",
 }
 
 _SCHEMA = """
