@@ -354,6 +354,7 @@ class MainWindow(QMainWindow):
         root.addWidget(self.split, 1)
 
         self.progress = ProgressPanel()
+        self.progress.cancelled.connect(self._cancel_analysis)
         root.addWidget(self.progress)
 
         self._root_layout = root
@@ -573,6 +574,21 @@ class MainWindow(QMainWindow):
             self.progress.end("Analysis complete")
             self.statusBar().showMessage("Analysis complete", 3000)
             self._update_duplicate_indicator()   # fingerprints now available
+
+    def _cancel_analysis(self) -> None:
+        """Stop queuing the rest of the analysis batch.
+
+        pool.clear() drops runnables that haven't started; the few already
+        running finish (their DB writes are real results, harmless to keep).
+        Cancelled-but-unstarted beats stay analysis_status='pending', so they
+        re-queue on the next launch/rescan — resume is free.
+
+        ponytail: cancel stops the queue, not the current file — analysis is one
+        opaque librosa call per file, not worth mid-call interruption plumbing.
+        """
+        self.pool.clear()
+        self._analysis_total = self._analysis_done = 0
+        self.progress.end("Analysis cancelled")
 
     def _update_progress_message(self) -> None:
         if self._analysis_total:
