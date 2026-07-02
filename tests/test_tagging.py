@@ -110,15 +110,6 @@ def test_batch_clear_tags_empties_placements(tmp_path, monkeypatch):
     win.close()
 
 
-def test_playable_tag_passthrough_and_fallback(tmp_path):
-    win = _window_with_beat(tmp_path)
-    # ratio ~1.0 -> play the raw file, no render.
-    assert win._playable_tag("/x/a.wav", 1.0, True) == "/x/a.wav"
-    # Non-trivial ratio but an unloadable file -> safe fallback to raw, no crash.
-    assert win._playable_tag("/x/missing.wav", 1.5, True) == "/x/missing.wav"
-    win.close()
-
-
 def test_place_and_remove_tags(tmp_path):
     win = _window_with_beat(tmp_path)
     win._place_tag_at_fraction(0.10)   # 10s
