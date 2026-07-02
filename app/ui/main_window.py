@@ -503,9 +503,11 @@ class MainWindow(QMainWindow):
         if not folders:
             return
         total = 0
+        changed = 0
         for folder in folders:
             try:
                 total += importer.scan_folder(self.db, folder)
+                changed += len(importer.rescan_changed(self.db, folder))
                 core_manifest.refresh_under(self.db, folder)
             except NotADirectoryError:
                 continue
@@ -513,6 +515,11 @@ class MainWindow(QMainWindow):
             self.refresh_library(self.search.text())
             self.statusBar().showMessage(
                 f"Startup scan: {total} new beat(s) added (existing skipped)", 4000)
+        if changed:
+            self.statusBar().showMessage(
+                f"{changed} changed file(s) queued for re-analysis", 4000)
+        if total or changed:
+            self.analyze_pending()
 
     def _update_duplicate_indicator(self) -> None:
         """Light up the Duplicates button (orange + count) when dupes exist."""
