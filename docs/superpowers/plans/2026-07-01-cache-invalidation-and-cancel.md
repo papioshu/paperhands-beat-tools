@@ -325,8 +325,8 @@ In `end()`, hide it (at the top of the method):
 Add to `tests/test_progress.py` (headless-offscreen; file already exists):
 
 ```python
-def test_cancel_button_emits_signal(qapp):
-    from app.ui.progress_panel import ProgressPanel
+def test_cancel_button_emits_signal():
+    _app()                          # module helper: QApplication.instance() or new
     panel = ProgressPanel()
     fired = []
     panel.cancelled.connect(lambda: fired.append(True))
@@ -336,7 +336,7 @@ def test_cancel_button_emits_signal(qapp):
     assert fired == [True]
 ```
 
-If `tests/test_progress.py` has no `qapp` fixture, use the same QApplication setup the other tests in that file use (check the top of the file and mirror it).
+`_app()` and the `ProgressPanel` import already exist at the top of `tests/test_progress.py`; follow that file's existing style.
 
 - [ ] **Step 3: Run the test**
 
